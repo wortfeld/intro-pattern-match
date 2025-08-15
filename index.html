@@ -46,27 +46,18 @@
   <script>
   (function(){
     var logEl = document.getElementById('log');
-    function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+    function log(s){ logEl.textContent += s + "
+"; logEl.scrollTop = logEl.scrollHeight; }
 
-    var btnLoad = document.getElementById('btnLoad');
-    var btnVersion = document.getElementById('btnVersion');
-    var btnExtract = document.getElementById('btnExtract');
-    var fileInput = document.getElementById('fileInput');
-    var downloadLink = document.getElementById('downloadLink');
-    var statusEl = document.getElementById('status');
-
-    var ffmpeg = null;
-
-    window.addEventListener('error', function(e){ log('window error: ' + e.message); });
-    window.addEventListener('unhandledrejection', function(e){
-      var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown';
-      log('unhandled rejection: ' + r);
-    });
-
-    // Quick sanity: does the UMD global exist?
-    log('typeof FFmpegWASM = ' + (typeof window.FFmpegWASM));
+    async function toBlobURL(url, mime){
+      const r = await fetch(url);
+      if(!r.ok) throw new Error('fetch failed '+url+' ('+r.status+')');
+      const b = await r.arrayBuffer();
+      return URL.createObjectURL(new Blob([b], { type: mime }));
+    }
 
     btnLoad.addEventListener('click', function(){
+      try {
       try {
         if (!window.FFmpegWASM) {
           log('FFmpegWASM global missing. Make sure ./vendor/ffmpeg/umd/ffmpeg.js and its chunk are present.');
@@ -85,24 +76,29 @@
           const localCore = new URL('./vendor/ffmpeg/core/ffmpeg-core.js', document.baseURI).href;
           const cdnCore1 = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js';
           const cdnCore2 = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js';
-          function tryLoad(coreURL){
-            log('ffmpeg.load with coreURL = ' + coreURL);
-            return ffmpeg.load({ coreURL: coreURL });
-          }
-          tryLoad(localCore)
-            .catch(function(err){ log('local core failed: ' + err); return tryLoad(cdnCore1); })
-            .catch(function(err){ log('cdn core #1 failed: ' + err); return tryLoad(cdnCore2); })
-            .then(function(){
-              log('ffmpeg loaded');
-              statusEl.textContent = 'loaded';
-              btnVersion.disabled = false;
-              btnExtract.disabled = false;
-              fileInput.disabled = false;
-            })
-            .catch(function(err){
-              log('ffmpeg.load error (all fallbacks failed): ' + err);
+          function (async function(){
+            try{
+              log('building blob: URLs for core/wasm/worker …');
+              const coreBase = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
+              const coreURL = await toBlobURL(coreBase + 'ffmpeg-core.js', 'text/javascript');
+              const wasmURL = await toBlobURL(coreBase + 'ffmpeg-core.wasm', 'application/wasm');
+              const workerURL = await toBlobURL(coreBase + 'ffmpeg-core.worker.js', 'text/javascript');
+              log('ffmpeg.load with blob URLs');
+              ffmpeg.load({ coreURL, wasmURL, workerURL }).then(function(){
+                log('ffmpeg loaded');
+                statusEl.textContent = 'loaded';
+                btnVersion.disabled = false;
+                btnExtract.disabled = false;
+                fileInput.disabled = false;
+              }).catch(function(err){
+                log('ffmpeg.load error: ' + err);
+                statusEl.textContent = 'load error';
+              });
+            } catch(e){
+              log('prep error: ' + e);
               statusEl.textContent = 'load error';
-            });
+            }
+          })();
         })();
       } catch (e) {
         log('load click error: ' + e);

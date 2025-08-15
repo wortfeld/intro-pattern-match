@@ -22,6 +22,7 @@
     .err { color: #8b0000; }
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
+      textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
   </style>
 </head>
 <body>
@@ -54,6 +55,11 @@
       <button id="btnMakePattern">Extract & Save Pattern</button>
     </div>
     <div class="muted">The marked segment will be decoded (mono, 16 kHz), MFCC features computed and stored locally (IndexedDB). No server.</div>
+    <div class="row">
+      <input id="refUrl" type="url" placeholder="https://example.com/path/to/reference.mp4" size="60">
+      <button id="btnMakePatternFromUrl">Fetch URL & Save Pattern</button>
+    </div>
+    <div class="muted">URL-Hinweis: Die Quelle muss CORS zulassen (Access-Control-Allow-Origin). Für große Dateien kann das Laden dauern.</div>
   </div>
 
   <div class="card">
@@ -65,6 +71,12 @@
     <div class="row">
       <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
       <button id="btnAnalyze">Analyze selected file(s)</button>
+    </div>
+    <div class="row">
+      <textarea id="targetUrls" placeholder="One URL per line (https://…) – analyzed against the selected pattern in the first N seconds"></textarea>
+      <div class="col">
+        <button id="btnAnalyzeUrls">Analyze URL(s)</button>
+      </div>
     </div>
     <table id="resultsTable">
       <thead><tr><th>video_id</th><th>matched_pattern</th><th>intro_start_mm:ss</th><th>intro_start_s</th><th>confidence</th><th>score</th></tr></thead>
@@ -252,6 +264,12 @@
       .then(function(data){ try{ ffmpeg.deleteFile(inputName); }catch(_){ } try{ ffmpeg.deleteFile(outName); }catch(_){ } return data.buffer; });
     }
 
+    // Fetch helpers for external URLs (CORS-aware)
+    function basenameFromUrl(u){ try{ var p=new URL(u); var s=p.pathname.split('/'); var name=s[s.length-1]||'remote.bin'; return decodeURIComponent(name); }catch(_){ return 'remote.bin'; } }
+    function fetchFullUrl(url, maxMB){ maxMB = maxMB || 300; log('fetching full URL (cap '+maxMB+' MB): '+url); return fetch(url, { mode: 'cors' }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status+' '+url); var len = parseInt(r.headers.get('Content-Length')||'0',10); if(len && len > maxMB*1024*1024) throw new Error('file too large ('+len+' bytes) for cap '+maxMB+' MB'); return r.arrayBuffer(); }).then(function(buf){ return { name: basenameFromUrl(url), buffer: buf }; }).catch(function(e){ if(String(e).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).'); throw e; }); }
+    function fetchHeadUrl(url, maxBytes){ maxBytes = maxBytes || (64*1024*1024); log('range-fetch head ('+Math.round(maxBytes/1048576)+' MB): '+url); return fetch(url, { headers: { 'Range': 'bytes=0-'+(maxBytes-1) }, mode: 'cors' }).then(function(r){ if(r.status===206){ return r.arrayBuffer().then(function(b){ return { name: basenameFromUrl(url), buffer: b, ranged:true }; }); } if(r.status===200){ var len = parseInt(r.headers.get('Content-Length')||'0',10); return r.arrayBuffer().then(function(b){ if(len && len>maxBytes && b.byteLength>maxBytes) throw new Error('server ignored Range and file exceeds cap ('+len+' bytes)'); return { name: basenameFromUrl(url), buffer: b, ranged:false }; }); } throw new Error('HTTP '+r.status+' for '+url); }).catch(function(e){ if(String(e).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).'); throw e; }); }
+    function bufferToFileLike(buf, name){ return { name: name||'remote.bin', arrayBuffer: function(){ return Promise.resolve(buf); } }; }
+
     // UI wiring
     btnLoad.addEventListener('click', function(){ ensureFFmpeg().catch(function(err){ log('ffmpeg load failed: '+err); }); });
 
@@ -292,6 +310,38 @@
     function addResultRow(videoId, patName, mmss, secs, conf, score){ var tr=document.createElement('tr'); function td(t){ var c=document.createElement('td'); c.textContent=t; return c; } tr.appendChild(td(videoId)); tr.appendChild(td(patName)); tr.appendChild(td(mmss)); tr.appendChild(td(secs)); tr.appendChild(td(conf)); tr.appendChild(td(score)); resultsTable.appendChild(tr); }
 
     btnExportCsv.addEventListener('click', function(){ var rows=[['video_id','matched_pattern','intro_start_mmss','intro_start_s','confidence','score']]; var trs=resultsTable.querySelectorAll('tr'); for(var i=0;i<trs.length;i++){ var tds=trs[i].querySelectorAll('td'); var row=[]; for(var j=0;j<tds.length;j++){ var v=tds[j].textContent.replace(/"/g,'""'); row.push('"'+v+'"'); } rows.push(row); } var csv=rows.map(function(r){return r.join(',');}).join('\n'); var blob=new Blob([csv],{type:'text/csv'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='intro_results.csv'; a.click(); URL.revokeObjectURL(url); });
+
+    // URL buttons
+    document.getElementById('btnMakePatternFromUrl').addEventListener('click', function(){
+      ensureFFmpeg().then(function(){
+        var url = (document.getElementById('refUrl').value||'').trim(); if(!url){ log('enter a reference URL'); return; }
+        var name = patternNameEl.value.trim() || basenameFromUrl(url);
+        var s = parseTime(introStartEl.value); var e = parseTime(introEndEl.value); if(!isFinite(s)||!isFinite(e)||e<=s){ log('invalid start/end'); return; }
+        var dur = e - s; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
+        return fetchFullUrl(url, 300).then(function(obj){ var fileLike = bufferToFileLike(obj.buffer, obj.name); log('downloaded '+obj.name+' ('+(obj.buffer.byteLength/1048576).toFixed(1)+' MB)'); return decodeSegmentToWav(fileLike, s, dur); })
+        .then(function(buf){ var wav = parseWavPCM16(buf); var feat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); var pat={ pattern_id: uuid(), name: name, created_at: new Date().toISOString(), algo_version: 'intro-match/1.0.0', reference_timing: { intro_start_s: s, intro_end_s: e, intro_duration_s: dur }, feature_config: { feature_type: 'mfcc'+mfccC, sr_hz: wav.sampleRate, win: frameSize, hop: hop, mel_bins: 40, normalization: 'zscore' }, feature_payload: { format:'f32', frame_count: feat.frames, dims: feat.dims, data_b64: btoa(String.fromCharCode.apply(null, new Uint8Array(new Float32Array(feat.data).buffer))) } }; return savePattern(pat); })
+        .catch(function(err){ log('make pattern (URL) failed: '+err); });
+      });
+    });
+
+    document.getElementById('btnAnalyzeUrls').addEventListener('click', function(){
+      ensureFFmpeg().then(function(){
+        var lines = (document.getElementById('targetUrls').value||'').split(/
+?
+/).map(function(s){ return s.trim(); }).filter(Boolean);
+        if(lines.length===0){ log('enter at least one URL'); return; }
+        var key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
+        var headWindow = parseInt(headWindowEl.value,10)||180; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
+        store.get(key).then(function(pat){ if(!pat){ log('pattern not found'); return; }
+          var raw = atob(pat.feature_payload.data_b64); var ab = new ArrayBuffer(raw.length); var u8 = new Uint8Array(ab); for(var i=0;i<raw.length;i++) u8[i]=raw.charCodeAt(i); var patData = new Float32Array(ab);
+          var patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
+          function processUrl(u){
+            return fetchHeadUrl(u, 64*1024*1024).then(function(obj){ var f = bufferToFileLike(obj.buffer, basenameFromUrl(u)); log('downloaded head for '+u+' ('+(obj.buffer.byteLength/1048576).toFixed(1)+' MB)'); return decodeHeadToWav(f, headWindow); }).then(function(buf){ var wav = parseWavPCM16(buf); var headFeat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); var res = slidingDistance(headFeat, patFeat); if(res.bestIdx<0){ log('no window fits for '+u); return; } var start_s = (res.bestIdx * hop) / wav.sampleRate; var mmss = fmtMMSS(start_s); var conf = (res.second===Infinity)? 1.0 : Math.max(0, Math.min(1, (res.second - res.best) / (res.second || 1))); addResultRow(basenameFromUrl(u), pat.name, mmss, start_s.toFixed(2), conf.toFixed(2), res.best.toFixed(4)); }).catch(function(err){ log('analyze URL failed ('+u+'): '+err); });
+          }
+          var p = Promise.resolve(); lines.forEach(function(u){ p = p.then(function(){ return processUrl(u); }); }); return p;
+        }).catch(function(err){ log('analyze URLs failed: '+err); });
+      });
+    });
 
     // init
     refreshPatternList();

@@ -75,43 +75,54 @@
       ffmpeg = new FFmpegClass();
       ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
 
-      statusEl.textContent = 'loading';
-      // Try local vendor/ path first, then fall back to two CDNs
-      var bases = [
-        new URL('./vendor/ffmpeg/core/', document.baseURI).href,
-        'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/',
-        'https://unpkg.com/@ffmpeg/core@0.12.10/dist/'
-      ];
-      function toBlobURL(url, mime){
-        return fetch(url).then(function(r){ if(!r.ok) throw new Error('fetch '+r.status+' '+url); return r.arrayBuffer(); })
-                        .then(function(buf){ return URL.createObjectURL(new Blob([buf], { type: mime })); });
-      }
-      function tryBase(i){
-        if(i>=bases.length) return Promise.reject(new Error('no core base worked'));
-        var base=bases[i];
-        log('trying core base: '+base);
-        return Promise.all([
-          toBlobURL(base+'ffmpeg-core.js','text/javascript'),
-          toBlobURL(base+'ffmpeg-core.wasm','application/wasm'),
-          toBlobURL(base+'ffmpeg-core.worker.js','text/javascript')
-        ]).then(function(arr){ return {coreURL:arr[0], wasmURL:arr[1], workerURL:arr[2]}; })
-          .catch(function(e){ log('base failed: '+e); return tryBase(i+1); });
-      }
+     statusEl.textContent = 'loading';
 
-      tryBase(0).then(function(u){
-        log('ffmpeg.load with resolved blob URLs');
-        return ffmpeg.load(u);
-      }).then(function(){
-        log('ffmpeg loaded');
-        statusEl.textContent = 'loaded';
-        btnVersion.disabled = false;
-        btnExtract.disabled = false;
-        fileInput.disabled = false;
-      }).catch(function(err){
-        statusEl.textContent = 'load error';
-        log('ffmpeg.load error: ' + err);
-      });
-    });
+// Bases: lokal UMD -> lokal ESM -> CDN UMD (jsDelivr) -> CDN UMD (unpkg)
+var bases = [
+  new URL('./vendor/ffmpeg/core/umd/', document.baseURI).href,
+  new URL('./vendor/ffmpeg/core/esm/', document.baseURI).href,
+  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/',
+  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/'
+];
+
+function toBlobURL(url, mime){
+  return fetch(url).then(function(r){
+    if(!r.ok) throw new Error('fetch '+r.status+' '+url);
+    return r.arrayBuffer();
+  }).then(function(buf){
+    return URL.createObjectURL(new Blob([buf], { type: mime }));
+  });
+}
+
+function tryBase(i){
+  if(i>=bases.length) return Promise.reject(new Error('no core base worked'));
+  var base = bases[i];
+  log('trying core base: ' + base);
+  return Promise.all([
+    toBlobURL(base + 'ffmpeg-core.js', 'text/javascript'),
+    toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm')
+  ]).then(function(arr){
+    return { coreURL: arr[0], wasmURL: arr[1] }; // kein workerURL nötig
+  }).catch(function(e){
+    log('base failed: ' + e);
+    return tryBase(i+1);
+  });
+}
+
+tryBase(0).then(function(u){
+  log('ffmpeg.load with resolved blob URLs');
+  return ffmpeg.load(u);
+}).then(function(){
+  log('ffmpeg loaded');
+  statusEl.textContent = 'loaded';
+  btnVersion.disabled = false;
+  btnExtract.disabled = false;
+  fileInput.disabled = false;
+}).catch(function(err){
+  statusEl.textContent = 'load error';
+  log('ffmpeg.load error (all bases failed): ' + err);
+});
+
 
     btnVersion.addEventListener('click', function(){
       if (!ffmpeg) { log('ffmpeg not loaded'); return; }

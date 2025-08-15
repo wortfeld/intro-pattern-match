@@ -40,12 +40,17 @@ jobs:
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
-          # Meyda lokal bereitstellen
+          # Meyda lokal bereitstellen (keine CDN-Abhängigkeit)
           MEYDA_TGZ="$(npm pack meyda@5.6.3)"
           tar -xzf "$MEYDA_TGZ"
           mkdir -p public/vendor/meyda
           cp package/dist/web/meyda.min.js public/vendor/meyda/meyda.min.js
           rm -rf package "$MEYDA_TGZ"
+          # Build bricht ab, wenn noch irgendwo idb-keyval referenziert wird
+          if grep -Riq "idb-keyval" public/index.html; then
+            echo "ERROR: idb-keyval reference still present in index.html"; exit 1;
+          fi
+
 
 
       - name: Publish to gh-pages branch

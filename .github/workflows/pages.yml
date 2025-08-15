@@ -40,6 +40,13 @@ jobs:
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
+          # Meyda lokal bereitstellen
+MEYDA_TGZ="$(npm pack meyda@5.6.3)"
+tar -xzf "$MEYDA_TGZ"
+mkdir -p public/vendor/meyda
+cp package/dist/web/meyda.min.js public/vendor/meyda/meyda.min.js
+rm -rf package "$MEYDA_TGZ"
+
 
       - name: Publish to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3

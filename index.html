@@ -76,10 +76,10 @@
   <h2>Log</h2>
   <div id="log"></div>
 
-  <!-- Dependencies: ffmpeg UMD (from your repo), Meyda (MFCC), idb-keyval (IndexedDB helper) -->
+  <!-- Dependencies: ffmpeg UMD (from your repo), Meyda (MFCC), kv-lib (IndexedDB helper) -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
   <script src="./vendor/meyda/meyda.min.js"></script>
-  <!-- Replaced external idb-keyval with an inline minimal IndexedDB helper to avoid CDN/MIME issues -->
+  <!-- Replaced external kv-lib with an inline minimal IndexedDB helper to avoid CDN/MIME issues -->
   <script>
   // build stamp: replace at deploy for cache-busting visibility
   console.log('Intro Pattern Matcher build: local-no-cdn');

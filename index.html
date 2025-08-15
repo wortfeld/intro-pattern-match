@@ -326,9 +326,7 @@
 
     document.getElementById('btnAnalyzeUrls').addEventListener('click', function(){
       ensureFFmpeg().then(function(){
-        var lines = (document.getElementById('targetUrls').value||'').split(/
-?
-/).map(function(s){ return s.trim(); }).filter(Boolean);
+        var lines = (document.getElementById('targetUrls').value||'').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
         if(lines.length===0){ log('enter at least one URL'); return; }
         var key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
         var headWindow = parseInt(headWindowEl.value,10)||180; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;

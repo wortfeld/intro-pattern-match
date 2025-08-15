@@ -26,33 +26,34 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
 
-      - name: Build public/
+           - name: Build public/
         run: |
           set -eux
-          mkdir -p public/vendor/ffmpeg/core public/vendor/ffmpeg/umd
+          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/core/esm public/vendor/ffmpeg/umd
 
-          # @ffmpeg/core – tarball holen, entpacken, 3 Dateien kopieren
-          CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
+          # @ffmpeg/core – Tarball laden, entpacken, UMD+ESM in public spiegeln
+          CORE_TGZ="$(npm pack @ffmpeg/core@0.12.10)"
           tar -xzf "$CORE_TGZ"
-          cp package/dist/ffmpeg-core.* public/vendor/ffmpeg/core/
+          cp package/dist/umd/* public/vendor/ffmpeg/core/umd/
+          cp package/dist/esm/* public/vendor/ffmpeg/core/esm/
           rm -rf package "$CORE_TGZ"
 
-          # @ffmpeg/ffmpeg (UMD) – inkl. Chunk-Dateien
-          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})"
+          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
+          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@0.12.15)"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
 
-          # index.html in public/ kopieren + .nojekyll
+          # index.html + .nojekyll
           cp index.html public/index.html
           touch public/.nojekyll
 
           echo "VERIFY:"
-          test -f public/vendor/ffmpeg/core/ffmpeg-core.js
-          test -f public/vendor/ffmpeg/core/ffmpeg-core.wasm
-          test -f public/vendor/ffmpeg/core/ffmpeg-core.worker.js
+          test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
+          test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
-          ls -l public/vendor/ffmpeg/core/ || true
+          # Hinweis: 0.12.10 hat KEINE ffmpeg-core.worker.js im single-thread core
+
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

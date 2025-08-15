@@ -1,4 +1,4 @@
-name: Build & Deploy Pages (ffmpeg.wasm PoC)
+name: Build & Push gh-pages (ffmpeg.wasm PoC)
 
 on:
   push:
@@ -6,17 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
-env:
-  FFMPEG_VERSION: 0.12.15   # Browser-Bundle (UMD)
-  CORE_VERSION: 0.12.10     # Single-thread core (UMD; js + wasm)
+  contents: write   # wichtig für Push auf gh-pages
 
 jobs:
   build:
@@ -31,44 +21,30 @@ jobs:
       - name: Build public/
         run: |
           set -eux
+          rm -rf public
           mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd
-
-          echo "Downloading @ffmpeg/core@${CORE_VERSION}…"
-          CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
+          # @ffmpeg/core (UMD js+wasm)
+          CORE_TGZ="$(npm pack @ffmpeg/core@0.12.10)"
           tar -xzf "$CORE_TGZ"
           cp package/dist/umd/* public/vendor/ffmpeg/core/umd/
           rm -rf package "$CORE_TGZ"
-
-          echo "Downloading @ffmpeg/ffmpeg@${FFMPEG_VERSION}…"
-          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})"
+          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
+          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@0.12.15)"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
-
-          # Deploy your index.html and disable Jekyll processing
+          # index.html + .nojekyll
           cp index.html public/index.html
           touch public/.nojekyll
-
-          echo "VERIFY (must all exist):"
+          # harte Checks
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
 
-          echo "Tree under public/:"
-          find public -maxdepth 3 -type f -print | sort
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          path: public
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
+          publish_branch: gh-pages
+          force_orphan: true

@@ -14,6 +14,10 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+env:
+  FFMPEG_VERSION: 0.12.10
+  CORE_VERSION: 0.12.10
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,24 +27,32 @@ jobs:
         with:
           node-version: 20
 
-      - name: Fetch ffmpeg.wasm bundles into ./public
+      - name: Fetch ffmpeg bundles into ./public
         run: |
           set -e
           mkdir -p public/vendor/ffmpeg/core public/vendor/ffmpeg/umd
-          # @ffmpeg/core
-          npm pack @ffmpeg/core@0.12.10
-          tar -xzf ffmpeg-core-0.12.10.tgz
+
+          echo "Downloading @ffmpeg/core@${CORE_VERSION}…"
+          CORE_TGZ=$(npm pack @ffmpeg/core@${CORE_VERSION})
+          echo "CORE_TGZ=${CORE_TGZ}"
+          tar -xzf "$CORE_TGZ"
           cp -r package/dist/* public/vendor/ffmpeg/core/
-          rm -rf package ffmpeg-core-0.12.10.tgz
-          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
-          npm pack @ffmpeg/ffmpeg@0.12.10
-          tar -xzf ffmpeg-0.12.10.tgz
+          rm -rf package "$CORE_TGZ"
+
+          echo "Downloading @ffmpeg/ffmpeg@${FFMPEG_VERSION}…"
+          FFMPEG_TGZ=$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})
+          echo "FFMPEG_TGZ=${FFMPEG_TGZ}"
+          tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
-          rm -rf package ffmpeg-0.12.10.tgz
+          rm -rf package "$FFMPEG_TGZ"
+
           # deine index.html in den Publish-Ordner
           cp index.html public/index.html
           # Jekyll aus
           touch public/.nojekyll
+
+          echo "Tree under public/:"
+          find public -maxdepth 3 -type f -printf "%P\n"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

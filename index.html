@@ -46,8 +46,13 @@
   <script>
   (function(){
     var logEl = document.getElementById('log');
-    function log(s){ logEl.textContent += s + "
-"; logEl.scrollTop = logEl.scrollHeight; }
+    function log(s){
+      // Robust: vermeidet String-Escape-Fehler und echte Zeilenumbrüche im Literal
+      var t = document.createTextNode(s);
+      logEl.appendChild(t);
+      logEl.appendChild(document.createElement('br'));
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
     async function toBlobURL(url, mime){
       const r = await fetch(url);

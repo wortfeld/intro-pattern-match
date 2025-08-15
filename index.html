@@ -78,13 +78,12 @@
         // Forward ffmpeg internal logs to our area
         ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
 
-        log('loading core from ./vendor/ffmpeg/core/...');
-        statusEl.textContent = 'loading';
-
+        log('resolving core URLs (absolute) …');
+        const coreBase = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
         ffmpeg.load({
-          coreURL: './vendor/ffmpeg/core/ffmpeg-core.js',
-          wasmURL: './vendor/ffmpeg/core/ffmpeg-core.wasm',
-          workerURL: './vendor/ffmpeg/core/ffmpeg-core.worker.js'
+          coreURL: coreBase + 'ffmpeg-core.js',
+          wasmURL: coreBase + 'ffmpeg-core.wasm',
+          workerURL: coreBase + 'ffmpeg-core.worker.js'
         }).then(function(){
           log('ffmpeg loaded');
           statusEl.textContent = 'loaded';

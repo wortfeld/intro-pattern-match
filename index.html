@@ -46,68 +46,53 @@
   <script>
   (function(){
     var logEl = document.getElementById('log');
-    function log(s){
-      // Robust: vermeidet String-Escape-Fehler und echte Zeilenumbrüche im Literal
-      var t = document.createTextNode(s);
-      logEl.appendChild(t);
-      logEl.appendChild(document.createElement('br'));
-      logEl.scrollTop = logEl.scrollHeight;
+    function log(s){ var t=document.createTextNode(s); logEl.appendChild(t); logEl.appendChild(document.createElement('br')); logEl.scrollTop = logEl.scrollHeight; }
+
+    var btnLoad = document.getElementById('btnLoad');
+    var btnVersion = document.getElementById('btnVersion');
+    var btnExtract = document.getElementById('btnExtract');
+    var fileInput = document.getElementById('fileInput');
+    var downloadLink = document.getElementById('downloadLink');
+    var statusEl = document.getElementById('status');
+
+    var ffmpeg = null;
+
+    window.addEventListener('error', function(e){ log('window error: ' + e.message); });
+    window.addEventListener('unhandledrejection', function(e){ var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown'; log('unhandled rejection: ' + r); });
+
+    function toBlobURL(url, mime){
+      return fetch(url).then(function(r){ if(!r.ok) throw new Error('fetch failed ' + url + ' (' + r.status + ')'); return r.arrayBuffer(); })
+                      .then(function(buf){ return URL.createObjectURL(new Blob([buf], { type: mime })); });
     }
 
-    async function toBlobURL(url, mime){
-      const r = await fetch(url);
-      if(!r.ok) throw new Error('fetch failed '+url+' ('+r.status+')');
-      const b = await r.arrayBuffer();
-      return URL.createObjectURL(new Blob([b], { type: mime }));
-    }
+    log('typeof FFmpegWASM = ' + (typeof window.FFmpegWASM));
 
     btnLoad.addEventListener('click', function(){
-      try {
-      try {
-        if (!window.FFmpegWASM) {
-          log('FFmpegWASM global missing. Make sure ./vendor/ffmpeg/umd/ffmpeg.js and its chunk are present.');
-          return;
-        }
-        var FFmpegClass = window.FFmpegWASM.FFmpeg;
-        ffmpeg = new FFmpegClass();
+      if (!window.FFmpegWASM) { log('FFmpegWASM global missing.'); return; }
+      var FFmpegClass = window.FFmpegWASM.FFmpeg;
+      ffmpeg = new FFmpegClass();
+      ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
 
-        // Forward ffmpeg internal logs to our area
-        ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
-
-        log('resolving core URLs (absolute) …');
-        const coreBase = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
-        (function(){
-          log('resolving core URL …');
-          const localCore = new URL('./vendor/ffmpeg/core/ffmpeg-core.js', document.baseURI).href;
-          const cdnCore1 = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js';
-          const cdnCore2 = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js';
-          function (async function(){
-            try{
-              log('building blob: URLs for core/wasm/worker …');
-              const coreBase = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
-              const coreURL = await toBlobURL(coreBase + 'ffmpeg-core.js', 'text/javascript');
-              const wasmURL = await toBlobURL(coreBase + 'ffmpeg-core.wasm', 'application/wasm');
-              const workerURL = await toBlobURL(coreBase + 'ffmpeg-core.worker.js', 'text/javascript');
-              log('ffmpeg.load with blob URLs');
-              ffmpeg.load({ coreURL, wasmURL, workerURL }).then(function(){
-                log('ffmpeg loaded');
-                statusEl.textContent = 'loaded';
-                btnVersion.disabled = false;
-                btnExtract.disabled = false;
-                fileInput.disabled = false;
-              }).catch(function(err){
-                log('ffmpeg.load error: ' + err);
-                statusEl.textContent = 'load error';
-              });
-            } catch(e){
-              log('prep error: ' + e);
-              statusEl.textContent = 'load error';
-            }
-          })();
-        })();
-      } catch (e) {
-        log('load click error: ' + e);
-      }
+      statusEl.textContent = 'loading';
+      var base = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
+      Promise.all([
+        toBlobURL(base + 'ffmpeg-core.js', 'text/javascript'),
+        toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm'),
+        toBlobURL(base + 'ffmpeg-core.worker.js', 'text/javascript')
+      ]).then(function(arr){
+        var coreURL = arr[0], wasmURL = arr[1], workerURL = arr[2];
+        log('ffmpeg.load with blob URLs');
+        return ffmpeg.load({ coreURL: coreURL, wasmURL: wasmURL, workerURL: workerURL });
+      }).then(function(){
+        log('ffmpeg loaded');
+        statusEl.textContent = 'loaded';
+        btnVersion.disabled = false;
+        btnExtract.disabled = false;
+        fileInput.disabled = false;
+      }).catch(function(err){
+        statusEl.textContent = 'load error';
+        log('ffmpeg.load error: ' + err);
+      });
     });
 
     btnVersion.addEventListener('click', function(){
@@ -115,9 +100,7 @@
       log('running: ffmpeg -version ...');
       ffmpeg.exec(['-version']).then(function(res){
         log('done (returnCode=' + (res && res.returnCode) + ')');
-      }).catch(function(err){
-        log('run error: ' + err);
-      });
+      }).catch(function(err){ log('run error: ' + err); });
     });
 
     btnExtract.addEventListener('click', function(){
@@ -127,16 +110,12 @@
       downloadLink.style.display = 'none';
       downloadLink.removeAttribute('href');
       downloadLink.removeAttribute('download');
-
-      // Read first file as Uint8Array and write it into ffmpeg FS
       file.arrayBuffer().then(function(buf){
-        var u8 = new Uint8Array(buf);
-        return ffmpeg.writeFile('in.bin', u8);
+        return ffmpeg.writeFile('in.bin', new Uint8Array(buf));
       }).then(function(){
         log('executing: -t 2 -i in.bin -vn -ac 1 -ar 16000 -sample_fmt s16 out.wav');
         return ffmpeg.exec(['-t','2','-i','in.bin','-vn','-ac','1','-ar','16000','-sample_fmt','s16','out.wav']);
-      }).then(function(res){
-        log('ffmpeg exec finished (returnCode=' + (res && res.returnCode) + ')');
+      }).then(function(){
         return ffmpeg.readFile('out.wav');
       }).then(function(data){
         var blob = new Blob([data], { type: 'audio/wav' });
@@ -146,13 +125,8 @@
         downloadLink.textContent = 'download result (snippet.wav)';
         downloadLink.style.display = 'inline-block';
         log('ready: you can download snippet.wav');
-      }).catch(function(err){
-        log('extract error: ' + err);
-      }).finally(function(){
-        // best-effort cleanup, ignore errors
-        try { ffmpeg.deleteFile('in.bin'); } catch(_){ }
-        try { ffmpeg.deleteFile('out.wav'); } catch(_){ }
-      });
+      }).catch(function(err){ log('extract error: ' + err); })
+        .finally(function(){ try { ffmpeg.deleteFile('in.bin'); } catch(_){} try { ffmpeg.deleteFile('out.wav'); } catch(_){} });
     });
   })();
   </script>

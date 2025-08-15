@@ -1,4 +1,4 @@
-name: Build & Push gh-pages
+name: Build & Push gh-pages (ffmpeg.wasm PoC)
 
 on:
   push:
@@ -6,56 +6,74 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write  # nötig zum Pushen auf gh-pages
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+env:
+  CORE_VERSION: 0.12.10    # @ffmpeg/core (UMD: js + wasm)
+  FFMPEG_VERSION: 0.12.15  # @ffmpeg/ffmpeg (UMD-Bundle)
+  MEYDA_VERSION: 5.6.3
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with:
+          node-version: 20
 
       - name: Build public/
         run: |
-          set -eux
+          set -euxo pipefail
           rm -rf public
           mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd public/vendor/meyda
-          # @ffmpeg/core (UMD js+wasm)
-          CORE_TGZ="$(npm pack @ffmpeg/core@0.12.10)"
+
+          echo "== Fetch @ffmpeg/core@${CORE_VERSION} =="
+          CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
           tar -xzf "$CORE_TGZ"
           cp package/dist/umd/* public/vendor/ffmpeg/core/umd/
           rm -rf package "$CORE_TGZ"
 
-          # @ffmpeg/ffmpeg (UMD + Chunk)
-          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@0.12.15)"
+          echo "== Fetch @ffmpeg/ffmpeg@${FFMPEG_VERSION} =="
+          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
 
-          # Meyda lokal
-          MEYDA_TGZ="$(npm pack meyda@5.6.3)"
+          echo "== Fetch meyda@${MEYDA_VERSION} (lokal) =="
+          MEYDA_TGZ="$(npm pack meyda@${MEYDA_VERSION})"
           tar -xzf "$MEYDA_TGZ"
           cp package/dist/web/meyda.min.js public/vendor/meyda/meyda.min.js
           rm -rf package "$MEYDA_TGZ"
 
-          # Index ins Artifact
+          echo "== Copy index.html & disable Jekyll =="
           cp index.html public/index.html
           touch public/.nojekyll
+          date -u +"build %Y-%m-%dT%H:%M:%SZ" > public/build.txt
 
-          # Guards
-          grep -Rni --color "idb-keyval" public/ && { echo "ERROR: idb-keyval reference present in artifact"; exit 1; } || true
+          echo "== Guards =="
+          # darf nirgends mehr vorkommen
+          if grep -Riq "idb-keyval" public/index.html; then
+            echo "ERROR: idb-keyval reference still present in index.html"
+            exit 1
+          fi
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
+          test -f public/vendor/meyda/meyda.min.js
 
-          echo "Tree under public/"
+          echo "== Tree under public/ =="
           find public -maxdepth 3 -type f -print | sort
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
           publish_dir: public
+          publish_branch: gh-pages
           force_orphan: true

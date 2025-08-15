@@ -18,13 +18,12 @@
 <body>
   <h1>ffmpeg.wasm PoC – GitHub Pages</h1>
   <div class="note">
-    Place this <code>index.html</code> in your repo root and add:
+    Needs these files in the Pages artifact (your workflow adds them):
     <ul>
-      <li><code>.nojekyll</code> (empty file)</li>
-      <li><code>vendor/ffmpeg/umd/</code> &rarr; copy the entire folder from <code>@ffmpeg/ffmpeg/dist/umd/</code> (must include <code>ffmpeg.js</code> and the numbered chunk like <code>814.ffmpeg.js</code>)</li>
-      <li><code>vendor/ffmpeg/core/</code> &rarr; copy all from <code>@ffmpeg/core/dist/</code> (<code>ffmpeg-core.js</code>, <code>ffmpeg-core.wasm</code>, <code>ffmpeg-core.worker.js</code>)</li>
+      <li><code>vendor/ffmpeg/umd/ffmpeg.js</code> (+ its chunk file)</li>
+      <li><code>vendor/ffmpeg/core/umd/ffmpeg-core.js</code> and <code>ffmpeg-core.wasm</code></li>
+      <li><code>.nojekyll</code> in the root</li>
     </ul>
-    Then enable GitHub Pages (Deploy from branch). No media upload is needed; files are processed locally in your browser.
   </div>
 
   <div class="row">
@@ -41,14 +40,17 @@
 
   <div id="log"></div>
 
-  <!-- UMD bundle (served from your repo). The chunk in the same folder (e.g. 814.ffmpeg.js) is required. -->
-  <!-- Load UMD from CDN so its internal chunk loads reliably -->
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-  <script>if(!window.FFmpegWASM){document.write('<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"><\/script>');}</script>
+  <!-- Load UMD bundle from your repo (the chunk sits in the same folder). -->
+  <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
   <script>
   (function(){
     var logEl = document.getElementById('log');
-    function log(s){ var t=document.createTextNode(s); logEl.appendChild(t); logEl.appendChild(document.createElement('br')); logEl.scrollTop = logEl.scrollHeight; }
+    function log(s){
+      var t = document.createTextNode(s);
+      logEl.appendChild(t);
+      logEl.appendChild(document.createElement('br'));
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
     var btnLoad = document.getElementById('btnLoad');
     var btnVersion = document.getElementById('btnVersion');
@@ -60,69 +62,70 @@
     var ffmpeg = null;
 
     window.addEventListener('error', function(e){ log('window error: ' + e.message); });
-    window.addEventListener('unhandledrejection', function(e){ var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown'; log('unhandled rejection: ' + r); });
+    window.addEventListener('unhandledrejection', function(e){
+      var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown';
+      log('unhandled rejection: ' + r);
+    });
 
+    // small helper: fetch -> blob: URL (avoids import/MIME/CORS edge cases)
     function toBlobURL(url, mime){
-      return fetch(url).then(function(r){ if(!r.ok) throw new Error('fetch failed ' + url + ' (' + r.status + ')'); return r.arrayBuffer(); })
-                      .then(function(buf){ return URL.createObjectURL(new Blob([buf], { type: mime })); });
+      return fetch(url).then(function(r){
+        if(!r.ok) throw new Error('fetch ' + r.status + ' ' + url);
+        return r.arrayBuffer();
+      }).then(function(buf){
+        return URL.createObjectURL(new Blob([buf], { type: mime }));
+      });
     }
 
     log('typeof FFmpegWASM = ' + (typeof window.FFmpegWASM));
 
     btnLoad.addEventListener('click', function(){
-      if (!window.FFmpegWASM) { log('FFmpegWASM global missing.'); return; }
+      if (!window.FFmpegWASM) {
+        log('FFmpegWASM global missing. Check ./vendor/ffmpeg/umd/ffmpeg.js and its chunk.');
+        return;
+      }
       var FFmpegClass = window.FFmpegWASM.FFmpeg;
       ffmpeg = new FFmpegClass();
       ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
 
-     statusEl.textContent = 'loading';
+      statusEl.textContent = 'loading';
 
-// Bases: lokal UMD -> lokal ESM -> CDN UMD (jsDelivr) -> CDN UMD (unpkg)
-var bases = [
-  new URL('./vendor/ffmpeg/core/umd/', document.baseURI).href,
-  new URL('./vendor/ffmpeg/core/esm/', document.baseURI).href,
-  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/',
-  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/'
-];
+      // Core bases (UMD): local -> jsDelivr -> unpkg
+      var bases = [
+        new URL('./vendor/ffmpeg/core/umd/', document.baseURI).href,
+        'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/',
+        'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/'
+      ];
 
-function toBlobURL(url, mime){
-  return fetch(url).then(function(r){
-    if(!r.ok) throw new Error('fetch '+r.status+' '+url);
-    return r.arrayBuffer();
-  }).then(function(buf){
-    return URL.createObjectURL(new Blob([buf], { type: mime }));
-  });
-}
+      function tryBase(i){
+        if(i>=bases.length) return Promise.reject(new Error('no core base worked'));
+        var base = bases[i];
+        log('trying core base: ' + base);
+        return Promise.all([
+          toBlobURL(base + 'ffmpeg-core.js', 'text/javascript'),
+          toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm')
+        ]).then(function(arr){
+          return { coreURL: arr[0], wasmURL: arr[1] };
+        }).catch(function(e){
+          log('base failed: ' + e);
+          return tryBase(i+1);
+        });
+      }
 
-function tryBase(i){
-  if(i>=bases.length) return Promise.reject(new Error('no core base worked'));
-  var base = bases[i];
-  log('trying core base: ' + base);
-  return Promise.all([
-    toBlobURL(base + 'ffmpeg-core.js', 'text/javascript'),
-    toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm')
-  ]).then(function(arr){
-    return { coreURL: arr[0], wasmURL: arr[1] }; // kein workerURL nötig
-  }).catch(function(e){
-    log('base failed: ' + e);
-    return tryBase(i+1);
-  });
-}
-
-tryBase(0).then(function(u){
-  log('ffmpeg.load with resolved blob URLs');
-  return ffmpeg.load(u);
-}).then(function(){
-  log('ffmpeg loaded');
-  statusEl.textContent = 'loaded';
-  btnVersion.disabled = false;
-  btnExtract.disabled = false;
-  fileInput.disabled = false;
-}).catch(function(err){
-  statusEl.textContent = 'load error';
-  log('ffmpeg.load error (all bases failed): ' + err);
-});
-
+      tryBase(0).then(function(u){
+        log('ffmpeg.load with resolved blob URLs');
+        return ffmpeg.load(u);
+      }).then(function(){
+        log('ffmpeg loaded');
+        statusEl.textContent = 'loaded';
+        btnVersion.disabled = false;
+        btnExtract.disabled = false;
+        fileInput.disabled = false;
+      }).catch(function(err){
+        statusEl.textContent = 'load error';
+        log('ffmpeg.load error: ' + err);
+      });
+    });
 
     btnVersion.addEventListener('click', function(){
       if (!ffmpeg) { log('ffmpeg not loaded'); return; }
@@ -139,6 +142,7 @@ tryBase(0).then(function(u){
       downloadLink.style.display = 'none';
       downloadLink.removeAttribute('href');
       downloadLink.removeAttribute('download');
+
       file.arrayBuffer().then(function(buf){
         return ffmpeg.writeFile('in.bin', new Uint8Array(buf));
       }).then(function(){
@@ -154,8 +158,12 @@ tryBase(0).then(function(u){
         downloadLink.textContent = 'download result (snippet.wav)';
         downloadLink.style.display = 'inline-block';
         log('ready: you can download snippet.wav');
-      }).catch(function(err){ log('extract error: ' + err); })
-        .finally(function(){ try { ffmpeg.deleteFile('in.bin'); } catch(_){} try { ffmpeg.deleteFile('out.wav'); } catch(_){} });
+      }).catch(function(err){
+        log('extract error: ' + err);
+      }).finally(function(){
+        try { ffmpeg.deleteFile('in.bin'); } catch(_){}
+        try { ffmpeg.deleteFile('out.wav'); } catch(_){}
+      });
     });
   })();
   </script>

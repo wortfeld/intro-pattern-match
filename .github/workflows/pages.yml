@@ -1,4 +1,4 @@
-name: Build & Push gh-pages (ffmpeg.wasm PoC)
+name: Build & Push gh-pages
 
 on:
   push:
@@ -6,57 +6,56 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # wichtig für Push auf gh-pages
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+        with: { node-version: 20 }
 
       - name: Build public/
         run: |
           set -eux
           rm -rf public
-          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd
+          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd public/vendor/meyda
           # @ffmpeg/core (UMD js+wasm)
           CORE_TGZ="$(npm pack @ffmpeg/core@0.12.10)"
           tar -xzf "$CORE_TGZ"
           cp package/dist/umd/* public/vendor/ffmpeg/core/umd/
           rm -rf package "$CORE_TGZ"
-          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
+
+          # @ffmpeg/ffmpeg (UMD + Chunk)
           FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@0.12.15)"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
-          # index.html + .nojekyll
+
+          # Meyda lokal
+          MEYDA_TGZ="$(npm pack meyda@5.6.3)"
+          tar -xzf "$MEYDA_TGZ"
+          cp package/dist/web/meyda.min.js public/vendor/meyda/meyda.min.js
+          rm -rf package "$MEYDA_TGZ"
+
+          # Index ins Artifact
           cp index.html public/index.html
           touch public/.nojekyll
-          # harte Checks
+
+          # Guards
+          grep -Rni --color "idb-keyval" public/ && { echo "ERROR: idb-keyval reference present in artifact"; exit 1; } || true
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
-          # Meyda lokal bereitstellen (keine CDN-Abhängigkeit)
-          MEYDA_TGZ="$(npm pack meyda@5.6.3)"
-          tar -xzf "$MEYDA_TGZ"
-          mkdir -p public/vendor/meyda
-          cp package/dist/web/meyda.min.js public/vendor/meyda/meyda.min.js
-          rm -rf package "$MEYDA_TGZ"
-          # Build bricht ab, wenn noch irgendwo idb-keyval referenziert wird
-          if grep -Riq "idb-keyval" public/index.html; then
-            echo "ERROR: idb-keyval reference still present in index.html"; exit 1;
-          fi
 
+          echo "Tree under public/"
+          find public -maxdepth 3 -type f -print | sort
 
-
-      - name: Publish to gh-pages branch
+      - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: public
           publish_branch: gh-pages
+          publish_dir: public
           force_orphan: true

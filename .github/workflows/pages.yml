@@ -1,0 +1,59 @@
+name: Build & Deploy Pages (ffmpeg.wasm PoC)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch ffmpeg.wasm bundles into ./public
+        run: |
+          set -e
+          mkdir -p public/vendor/ffmpeg/core public/vendor/ffmpeg/umd
+          # @ffmpeg/core
+          npm pack @ffmpeg/core@0.12.10
+          tar -xzf ffmpeg-core-0.12.10.tgz
+          cp -r package/dist/* public/vendor/ffmpeg/core/
+          rm -rf package ffmpeg-core-0.12.10.tgz
+          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
+          npm pack @ffmpeg/ffmpeg@0.12.10
+          tar -xzf ffmpeg-0.12.10.tgz
+          cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
+          rm -rf package ffmpeg-0.12.10.tgz
+          # deine index.html in den Publish-Ordner
+          cp index.html public/index.html
+          # Jekyll aus
+          touch public/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

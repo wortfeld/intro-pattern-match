@@ -17,16 +17,13 @@
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eee; font-size: 12px; margin-left: 8px; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
     .muted { color: #666; font-size: 12px; }
-    .ok { color: #046c4e; }
-    .warn { color: #7a5900; }
-    .err { color: #8b0000; }
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
   </style>
 </head>
 <body>
   <h1>Intro Pattern Matcher – ffmpeg.wasm (GitHub Pages)</h1>
-  <div class="muted">Client-side PoC: create and store an intro pattern from a reference file, then detect the intro start in the first N minutes of new files. No uploads.</div>
+  <div class="muted">Client-side PoC: create and store an intro pattern from a reference file, then detect the intro start in the first N minutes of new files. No uploads. No external CDNs required.</div>
 
   <div class="card">
     <div class="row">
@@ -76,10 +73,11 @@
   <h2>Log</h2>
   <div id="log"></div>
 
-  <!-- Dependencies: ffmpeg UMD (from your repo), Meyda (MFCC), idb-keyval (IndexedDB helper) -->
+  <!-- Local dependencies: UMD ffmpeg from your repo; Meyda also local (no CDN) -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/meyda@5.6.3/dist/web/meyda.min.js"></script>
-  <!-- Replaced external idb-keyval with an inline minimal IndexedDB helper to avoid CDN/MIME issues -->
+  <script src="./vendor/meyda/meyda.min.js"></script>
+
+  <!-- Inline IndexedDB helper (SimpleKV) to avoid external idb-keyval -->
   <script>
     (function(){
       function openDB(){
@@ -159,7 +157,7 @@
     var btnExportCsv = document.getElementById('btnExportCsv');
 
     var ffmpeg = null; // FFmpeg instance
-    var store = window.SimpleKV; // Inline IndexedDB helper (no CDN)
+    var store = window.SimpleKV; // IndexedDB helper (inline)
 
     window.addEventListener('error', function(e){ log('window error: ' + e.message); });
     window.addEventListener('unhandledrejection', function(e){ var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown'; log('unhandled rejection: ' + r); });
@@ -168,7 +166,7 @@
 
     function ensureFFmpeg(){
       if(ffmpeg) return Promise.resolve();
-      if(!window.FFmpegWASM){ log('FFmpegWASM global missing (check vendor/ffmpeg/umd/ffmpeg.js).'); return Promise.reject(new Error('FFmpegWASM missing')); }
+      if(!window.FFmpegWASM){ log('FFmpegWASM global missing (check vendor/ffmpeg/umd/ffmpeg.js).'); return Promise.reject(new Error('FFMPEGWASM missing')); }
       var FFmpegClass = window.FFmpegWASM.FFmpeg; ffmpeg = new FFmpegClass();
       ffmpeg.on('log', function(ev){ if(ev && ev.message) log('[ffmpeg] ' + ev.message); });
       statusEl.textContent = 'loading';
@@ -188,7 +186,7 @@
       var samples = new Int16Array(buf, dataOff, dataLen/2); var out = new Float32Array(samples.length); for(var i=0;i<samples.length;i++){ out[i]=samples[i]/32768; } return { sampleRate: fmt.sampleRate, signal: out };
     }
 
-    // MFCC feature extraction over sliding frames using Meyda
+    // MFCC feature extraction using Meyda (global Meyda)
     function computeMFCC(signal, sampleRate, frameSize, hopSize, mfccCount){
       var frames = Math.floor((signal.length - frameSize) / hopSize) + 1; if(frames<1) return { frames:0, dims: mfccCount, data: new Float32Array(0) };
       var data = new Float32Array(frames * mfccCount);
@@ -251,9 +249,9 @@
     }
 
     // UI wiring
-    btnLoad.addEventListener('click', function(){ ensureFFmpeg().catch(function(err){ log('ffmpeg load failed: '+err); }); });
+    document.getElementById('btnLoad').addEventListener('click', function(){ ensureFFmpeg().catch(function(err){ log('ffmpeg load failed: '+err); }); });
 
-    btnMakePattern.addEventListener('click', function(){
+    document.getElementById('btnMakePattern').addEventListener('click', function(){
       ensureFFmpeg().then(function(){
         var f = refFileEl.files && refFileEl.files[0]; if(!f){ log('pick a reference file'); return; }
         var name = patternNameEl.value.trim(); if(!name){ log('enter a pattern name'); return; }
@@ -264,9 +262,9 @@
       }).catch(function(err){ log('make pattern failed: '+err); });
     });
 
-    btnDeletePattern.addEventListener('click', function(){ deleteSelected().catch(function(err){ log('delete failed: '+err); }); });
+    document.getElementById('btnDeletePattern').addEventListener('click', function(){ deleteSelected().catch(function(err){ log('delete failed: '+err); }); });
 
-    btnAnalyze.addEventListener('click', function(){
+    document.getElementById('btnAnalyze').addEventListener('click', function(){
       ensureFFmpeg().then(function(){
         var files = targetFileEl.files; if(!files || files.length===0){ log('pick at least one target file'); return; }
         var key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
@@ -289,10 +287,11 @@
 
     function addResultRow(videoId, patName, mmss, secs, conf, score){ var tr=document.createElement('tr'); function td(t){ var c=document.createElement('td'); c.textContent=t; return c; } tr.appendChild(td(videoId)); tr.appendChild(td(patName)); tr.appendChild(td(mmss)); tr.appendChild(td(secs)); tr.appendChild(td(conf)); tr.appendChild(td(score)); resultsTable.appendChild(tr); }
 
-    btnExportCsv.addEventListener('click', function(){ var rows=[['video_id','matched_pattern','intro_start_mmss','intro_start_s','confidence','score']]; var trs=resultsTable.querySelectorAll('tr'); for(var i=0;i<trs.length;i++){ var tds=trs[i].querySelectorAll('td'); var row=[]; for(var j=0;j<tds.length;j++){ var v=tds[j].textContent.replace(/"/g,'""'); row.push('"'+v+'"'); } rows.push(row); } var csv=rows.map(function(r){return r.join(',');}).join('\n'); var blob=new Blob([csv],{type:'text/csv'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='intro_results.csv'; a.click(); URL.revokeObjectURL(url); });
+    document.getElementById('btnExportCsv').addEventListener('click', function(){ var rows=[['video_id','matched_pattern','intro_start_mmss','intro_start_s','confidence','score']]; var trs=resultsTable.querySelectorAll('tr'); for(var i=0;i<trs.length;i++){ var tds=trs[i].querySelectorAll('td'); var row=[]; for(var j=0;j<tds.length;j++){ var v=tds[j].textContent.replace(/\"/g,'\"\"'); row.push('\"'+v+'\"'); } rows.push(row); } var csv=rows.map(function(r){return r.join(',');}).join('\n'); var blob=new Blob([csv],{type:'text/csv'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='intro_results.csv'; a.click(); URL.revokeObjectURL(url); });
 
     // init
-    refreshPatternList();
+    function refresh(){ return store.keys().then(function(keys){ if(!keys||!keys.length){ patternSelect.innerHTML=''; var opt=document.createElement('option'); opt.textContent='(no patterns yet)'; patternSelect.appendChild(opt); } else { return refreshPatternList(); } }); }
+    refresh();
   })();
   </script>
 </body>

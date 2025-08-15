@@ -15,49 +15,52 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FFMPEG_VERSION: 0.12.15   # Browser-Bundle
-  CORE_VERSION: 0.12.10     # Single-thread core (3 Dateien unter /dist)
+  FFMPEG_VERSION: 0.12.15   # Browser-Bundle (UMD)
+  CORE_VERSION: 0.12.10     # Single-thread core (UMD; js + wasm)
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
 
-           - name: Build public/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build public/
         run: |
           set -eux
-          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/core/esm public/vendor/ffmpeg/umd
+          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd
 
-          # @ffmpeg/core – Tarball laden, entpacken, UMD+ESM in public spiegeln
-          CORE_TGZ="$(npm pack @ffmpeg/core@0.12.10)"
+          echo "Downloading @ffmpeg/core@${CORE_VERSION}…"
+          CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
           tar -xzf "$CORE_TGZ"
           cp package/dist/umd/* public/vendor/ffmpeg/core/umd/
-          cp package/dist/esm/* public/vendor/ffmpeg/core/esm/
           rm -rf package "$CORE_TGZ"
 
-          # @ffmpeg/ffmpeg (UMD + Chunk-Dateien)
-          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@0.12.15)"
+          echo "Downloading @ffmpeg/ffmpeg@${FFMPEG_VERSION}…"
+          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
 
-          # index.html + .nojekyll
+          # Deploy your index.html and disable Jekyll processing
           cp index.html public/index.html
           touch public/.nojekyll
 
-          echo "VERIFY:"
+          echo "VERIFY (must all exist):"
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.js
           test -f public/vendor/ffmpeg/core/umd/ffmpeg-core.wasm
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
-          # Hinweis: 0.12.10 hat KEINE ffmpeg-core.worker.js im single-thread core
 
+          echo "Tree under public/:"
+          find public -maxdepth 3 -type f -print | sort
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
-        with: { path: public }
+        with:
+          path: public
 
   deploy:
     needs: build
@@ -66,5 +69,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4

@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FFMPEG_VERSION: 0.12.10
-  CORE_VERSION: 0.12.10
+  FFMPEG_VERSION: 0.12.15   # Browser-Bundle
+  CORE_VERSION: 0.12.10     # Single-thread core (3 Dateien unter /dist)
 
 jobs:
   build:
@@ -24,40 +24,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+        with: { node-version: 20 }
 
-      - name: Fetch ffmpeg bundles into ./public
+      - name: Build public/
         run: |
-          set -e
+          set -eux
           mkdir -p public/vendor/ffmpeg/core public/vendor/ffmpeg/umd
 
-          echo "Downloading @ffmpeg/core@${CORE_VERSION}…"
-          CORE_TGZ=$(npm pack @ffmpeg/core@${CORE_VERSION})
-          echo "CORE_TGZ=${CORE_TGZ}"
+          # @ffmpeg/core – tarball holen, entpacken, 3 Dateien kopieren
+          CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
           tar -xzf "$CORE_TGZ"
-          cp -r package/dist/* public/vendor/ffmpeg/core/
+          cp package/dist/ffmpeg-core.* public/vendor/ffmpeg/core/
           rm -rf package "$CORE_TGZ"
 
-          echo "Downloading @ffmpeg/ffmpeg@${FFMPEG_VERSION}…"
-          FFMPEG_TGZ=$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})
-          echo "FFMPEG_TGZ=${FFMPEG_TGZ}"
+          # @ffmpeg/ffmpeg (UMD) – inkl. Chunk-Dateien
+          FFMPEG_TGZ="$(npm pack @ffmpeg/ffmpeg@${FFMPEG_VERSION})"
           tar -xzf "$FFMPEG_TGZ"
           cp -r package/dist/umd/* public/vendor/ffmpeg/umd/
           rm -rf package "$FFMPEG_TGZ"
 
-          # deine index.html in den Publish-Ordner
+          # index.html in public/ kopieren + .nojekyll
           cp index.html public/index.html
-          # Jekyll aus
           touch public/.nojekyll
 
-          echo "Tree under public/:"
-          find public -maxdepth 3 -type f -printf "%P\n"
+          echo "VERIFY:"
+          test -f public/vendor/ffmpeg/core/ffmpeg-core.js
+          test -f public/vendor/ffmpeg/core/ffmpeg-core.wasm
+          test -f public/vendor/ffmpeg/core/ffmpeg-core.worker.js
+          test -f public/vendor/ffmpeg/umd/ffmpeg.js
+          ls -l public/vendor/ffmpeg/core/ || true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
+        with: { path: public }
 
   deploy:
     needs: build
@@ -66,6 +65,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4

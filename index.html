@@ -79,7 +79,56 @@
   <!-- Dependencies: ffmpeg UMD (from your repo), Meyda (MFCC), idb-keyval (IndexedDB helper) -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/meyda@5.6.3/dist/web/meyda.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/idb-keyval.iife.min.js"></script>
+  <!-- Replaced external idb-keyval with an inline minimal IndexedDB helper to avoid CDN/MIME issues -->
+  <script>
+    (function(){
+      function openDB(){
+        return new Promise(function(resolve,reject){
+          var req = indexedDB.open('intro-matcher-db', 1);
+          req.onupgradeneeded = function(){
+            var db = req.result;
+            if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+          };
+          req.onsuccess = function(){ resolve(req.result); };
+          req.onerror = function(){ reject(req.error); };
+        });
+      }
+      function withStore(mode, fn){
+        return openDB().then(function(db){
+          return new Promise(function(resolve,reject){
+            var tx = db.transaction('kv', mode);
+            var store = tx.objectStore('kv');
+            var request;
+            try { request = fn(store); } catch(e){ reject(e); return; }
+            tx.oncomplete = function(){ resolve(request && request.result); };
+            tx.onerror = function(){ reject(tx.error || (request && request.error)); };
+          });
+        });
+      }
+      window.SimpleKV = {
+        get: function(key){ return withStore('readonly', function(s){ return s.get(key); }); },
+        set: function(key, val){ return withStore('readwrite', function(s){ return s.put(val, key); }); },
+        del: function(key){ return withStore('readwrite', function(s){ return s.delete(key); }); },
+        clear: function(){ return withStore('readwrite', function(s){ return s.clear(); }); },
+        keys: function(){
+          return openDB().then(function(db){
+            return new Promise(function(resolve,reject){
+              var tx = db.transaction('kv','readonly');
+              var store = tx.objectStore('kv');
+              var out = [];
+              var req = store.openKeyCursor();
+              req.onsuccess = function(ev){
+                var cur = ev.target.result;
+                if(cur){ out.push(cur.key); cur.continue(); }
+                else resolve(out);
+              };
+              req.onerror = function(){ reject(req.error); };
+            });
+          });
+        }
+      };
+    })();
+  </script>
 
   <script>
   (function(){
@@ -110,7 +159,7 @@
     var btnExportCsv = document.getElementById('btnExportCsv');
 
     var ffmpeg = null; // FFmpeg instance
-    var store = idbKeyval; // IndexedDB helper
+    var store = window.SimpleKV; // Inline IndexedDB helper (no CDN)
 
     window.addEventListener('error', function(e){ log('window error: ' + e.message); });
     window.addEventListener('unhandledrejection', function(e){ var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown'; log('unhandled rejection: ' + r); });

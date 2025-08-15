@@ -42,7 +42,9 @@
   <div id="log"></div>
 
   <!-- UMD bundle (served from your repo). The chunk in the same folder (e.g. 814.ffmpeg.js) is required. -->
-  <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
+  <!-- Load UMD from CDN so its internal chunk loads reliably -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script>if(!window.FFmpegWASM){document.write('<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"><\/script>');}</script>
   <script>
   (function(){
     var logEl = document.getElementById('log');
@@ -74,15 +76,31 @@
       ffmpeg.on('log', function(ev){ if (ev && ev.message) log('[ffmpeg] ' + ev.message); });
 
       statusEl.textContent = 'loading';
-      var base = new URL('./vendor/ffmpeg/core/', document.baseURI).href;
-      Promise.all([
-        toBlobURL(base + 'ffmpeg-core.js', 'text/javascript'),
-        toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm'),
-        toBlobURL(base + 'ffmpeg-core.worker.js', 'text/javascript')
-      ]).then(function(arr){
-        var coreURL = arr[0], wasmURL = arr[1], workerURL = arr[2];
-        log('ffmpeg.load with blob URLs');
-        return ffmpeg.load({ coreURL: coreURL, wasmURL: wasmURL, workerURL: workerURL });
+      // Try local vendor/ path first, then fall back to two CDNs
+      var bases = [
+        new URL('./vendor/ffmpeg/core/', document.baseURI).href,
+        'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/',
+        'https://unpkg.com/@ffmpeg/core@0.12.10/dist/'
+      ];
+      function toBlobURL(url, mime){
+        return fetch(url).then(function(r){ if(!r.ok) throw new Error('fetch '+r.status+' '+url); return r.arrayBuffer(); })
+                        .then(function(buf){ return URL.createObjectURL(new Blob([buf], { type: mime })); });
+      }
+      function tryBase(i){
+        if(i>=bases.length) return Promise.reject(new Error('no core base worked'));
+        var base=bases[i];
+        log('trying core base: '+base);
+        return Promise.all([
+          toBlobURL(base+'ffmpeg-core.js','text/javascript'),
+          toBlobURL(base+'ffmpeg-core.wasm','application/wasm'),
+          toBlobURL(base+'ffmpeg-core.worker.js','text/javascript')
+        ]).then(function(arr){ return {coreURL:arr[0], wasmURL:arr[1], workerURL:arr[2]}; })
+          .catch(function(e){ log('base failed: '+e); return tryBase(i+1); });
+      }
+
+      tryBase(0).then(function(u){
+        log('ffmpeg.load with resolved blob URLs');
+        return ffmpeg.load(u);
       }).then(function(){
         log('ffmpeg loaded');
         statusEl.textContent = 'loaded';

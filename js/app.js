@@ -14,13 +14,7 @@ import { parseWavPCM16, computeMFCC } from './features.js';
 import { slidingDistance } from './matcher.js';
 import { logger, addResultRowRich } from './ui.js';
 import {
-  parseTime,
-  fmtMMSS,
-  fmtHHMMSS,
-  basenameFromUrl,
-  uuid,
-  // TSV-first parsing util you added previously
-  parseBatch
+  parseTime, fmtMMSS, fmtHHMMSS, basenameFromUrl, uuid, parseBatch
 } from './meta.js';
 
 const logEl = document.getElementById('log');
@@ -57,9 +51,12 @@ const btnExportCsv = document.getElementById('btnExportCsv');
 const overlay = document.getElementById('overlay');
 const busyLabel = document.getElementById('busyLabel');
 
+window.addEventListener('error', e=>log('window error: ' + e.message));
+window.addEventListener('unhandledrejection', e=>log('unhandled rejection: ' + (e?.reason?.message || e?.reason || 'unknown')));
+
 // ---------- Busy UI ----------
 let busyCount = 0;
-function setBusy(on, label='Working…'){
+function setBusy(on, label='Bitte warten …'){
   busyCount += on ? 1 : -1;
   if (busyCount < 0) busyCount = 0;
   const active = busyCount > 0;
@@ -67,7 +64,6 @@ function setBusy(on, label='Working…'){
   overlay.classList.toggle('hidden', !active);
   overlay.setAttribute('aria-hidden', String(!active));
   busyLabel.textContent = label;
-  // keep Abort enabled, disable others
   const controls = document.querySelectorAll('button, input, textarea, select');
   controls.forEach(el => {
     if (el === btnAbort) return;
@@ -78,7 +74,7 @@ function setBusy(on, label='Working…'){
 
 // ---------- Abort/run controller ----------
 let currentRun = null;
-function startRun(label='Working…'){
+function startRun(label='Bitte warten …'){
   if (currentRun && !currentRun.aborted) endRun();
   const ctx = {
     id: Math.random().toString(36).slice(2),
@@ -104,7 +100,7 @@ function endRun(){
   if (currentRun) currentRun.abortAll();
   currentRun = null;
 }
-btnAbort.addEventListener('click', ()=>{ if (currentRun) currentRun.abortAll(); log('aborted.'); });
+btnAbort.addEventListener('click', ()=>{ if (currentRun) currentRun.abortAll(); log('abgebrochen.'); });
 
 // ---------- Helpers ----------
 function b64FromFloat32(f32){
@@ -121,13 +117,13 @@ function float32FromB64(b64){
 }
 
 async function ensureCore(){
-  statusEl.textContent = 'ffmpeg: loading…';
+  statusEl.textContent = 'ffmpeg: lädt …';
   try {
     await ensureFFmpeg(msg => log(msg));
     coreInfoEl.textContent = 'core=umd js+wasm';
-    statusEl.textContent = 'ffmpeg: ready';
+    statusEl.textContent = 'ffmpeg: bereit';
   } catch (e){
-    statusEl.textContent = 'ffmpeg: error';
+    statusEl.textContent = 'ffmpeg: Fehler';
     log('ffmpeg load failed: '+e);
     throw e;
   }
@@ -138,7 +134,7 @@ function refreshPatternList(){
     .then(items => {
       patternSelect.innerHTML='';
       if(items.length===0){
-        const opt=document.createElement('option'); opt.textContent='(no patterns yet)'; patternSelect.appendChild(opt); return;
+        const opt=document.createElement('option'); opt.textContent='(noch keine Muster)'; patternSelect.appendChild(opt); return;
       }
       items.forEach(it=>{
         const opt=document.createElement('option');
@@ -148,21 +144,19 @@ function refreshPatternList(){
     });
 }
 
-function addResultRow(cells){
-  addResultRowRich(resultsTable, cells);
-}
+function addResultRow(cells){ addResultRowRich(resultsTable, cells); }
 
-// ---------- Pattern creation (URL-first) ----------
+// ---------- Muster erstellen (URL, Standard) ----------
 btnMakePatternFromUrl.addEventListener('click', async ()=>{
-  setBusy(true, 'Creating pattern…');
+  setBusy(true, 'Muster wird erstellt …');
   try{
     await ensureCore();
-    const url = (refUrlEl.value||'').trim(); if(!url){ log('enter a reference URL'); return; }
+    const url = (refUrlEl.value||'').trim(); if(!url){ log('Bitte Referenz-URL eingeben.'); return; }
     const name = (patternNameEl.value||'').trim() || basenameFromUrl(url);
     const s = parseTime(introStartEl.value); const e = parseTime(introEndEl.value);
-    if(!Number.isFinite(s)||!Number.isFinite(e)||e<=s){ log('invalid start/end'); return; }
+    if(!Number.isFinite(s)||!Number.isFinite(e)||e<=s){ log('Ungültiger Intro-Start/-Ende.'); return; }
     const outDur = parseTime(outroDurationEl.value);
-    if(outroDurationEl.value && !Number.isFinite(outDur)){ log('invalid outro duration'); return; }
+    if(outroDurationEl.value && !Number.isFinite(outDur)){ log('Ungültige Outro-Dauer.'); return; }
 
     const frameSize = parseInt(frameSizeEl.value,10)||1024;
     const hop = parseInt(hopSizeEl.value,10)||512;
@@ -171,7 +165,7 @@ btnMakePatternFromUrl.addEventListener('click', async ()=>{
     const dur = e - s;
     const obj = await fetchFullUrl(url, 300);
     const fileLike = bufferToFileLike(obj.buffer, basenameFromUrl(url));
-    log(`downloaded ${basenameFromUrl(url)} (${(obj.buffer.byteLength/1048576).toFixed(1)} MB)`);
+    log(`geladen: ${basenameFromUrl(url)} (${(obj.buffer.byteLength/1048576).toFixed(1)} MB)`);
     const buf = await decodeSegmentToWav(fileLike, s, dur, log);
     const wav = parseWavPCM16(buf);
     const feat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC);
@@ -191,32 +185,31 @@ btnMakePatternFromUrl.addEventListener('click', async ()=>{
       feature_payload: { format:'f32', frame_count: feat.frames, dims: feat.dims, data_b64: b64FromFloat32(feat.data) }
     };
     await KV.set(pat.pattern_id, pat);
-    log('pattern saved: '+pat.name+' ['+pat.pattern_id+']');
+    log('Muster gespeichert: '+pat.name+' ['+pat.pattern_id+']');
     await refreshPatternList();
   }catch(err){
-    if(String(err).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).');
-    log('make pattern (URL) failed: '+err);
+    if(String(err).includes('TypeError')) log('Hinweis: CORS der Quelle fehlt (Access-Control-Allow-Origin).');
+    log('Muster aus URL fehlgeschlagen: '+err);
   } finally { setBusy(false); }
 });
 
-// ---------- Pattern creation (file alternative) ----------
+// ---------- Muster erstellen (Datei, Alternative) ----------
 btnMakePattern.addEventListener('click', async ()=>{
-  setBusy(true, 'Creating pattern…');
+  setBusy(true, 'Muster wird erstellt …');
   try{
     await ensureCore();
-    const f = refFileEl.files && refFileEl.files[0]; if(!f){ log('pick a reference file'); return; }
-    const name = (patternNameEl.value||'').trim(); if(!name){ log('enter a pattern name'); return; }
+    const f = refFileEl.files && refFileEl.files[0]; if(!f){ log('Bitte Datei auswählen.'); return; }
+    const name = (patternNameEl.value||'').trim(); if(!name){ log('Bitte Namen eintragen.'); return; }
     const s = parseTime(introStartEl.value); const e = parseTime(introEndEl.value);
-    if(!Number.isFinite(s)||!Number.isFinite(e)||e<=s){ log('invalid start/end'); return; }
+    if(!Number.isFinite(s)||!Number.isFinite(e)||e<=s){ log('Ungültiger Intro-Start/-Ende.'); return; }
     const outDur = parseTime(outroDurationEl.value);
-    if(outroDurationEl.value && !Number.isFinite(outDur)){ log('invalid outro duration'); return; }
+    if(outroDurationEl.value && !Number.isFinite(outDur)){ log('Ungültige Outro-Dauer.'); return; }
 
     const frameSize = parseInt(frameSizeEl.value,10)||1024;
     const hop = parseInt(hopSizeEl.value,10)||512;
     const mfccC = parseInt(mfccCountEl.value,10)||13;
 
     const dur = e - s;
-    log(`extracting segment ${fmtMMSS(s)}–${fmtMMSS(e)} (${dur.toFixed(2)}s) …`);
     const buf = await decodeSegmentToWav(f, s, dur, log);
     const wav = parseWavPCM16(buf);
     const feat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC);
@@ -236,49 +229,48 @@ btnMakePattern.addEventListener('click', async ()=>{
       feature_payload: { format:'f32', frame_count: feat.frames, dims: feat.dims, data_b64: b64FromFloat32(feat.data) }
     };
     await KV.set(pat.pattern_id, pat);
-    log('pattern saved: '+pat.name+' ['+pat.pattern_id+']');
+    log('Muster gespeichert: '+pat.name+' ['+pat.pattern_id+']');
     await refreshPatternList();
-  }catch(err){ log('make pattern failed: '+err); }
+  }catch(err){ log('Muster aus Datei fehlgeschlagen: '+err); }
   finally { setBusy(false); }
 });
 
-// ---------- Delete pattern ----------
+// ---------- Muster löschen ----------
 btnDeletePattern.addEventListener('click', async ()=>{
-  setBusy(true, 'Deleting…');
+  setBusy(true, 'Löschen …');
   try{
     const key = patternSelect.value;
-    if(!key || key.startsWith('(no')) return;
+    if(!key || key.startsWith('(noch keine')) return;
     await KV.del(key);
-    log('pattern deleted: '+key);
+    log('Muster gelöscht: '+key);
     await refreshPatternList();
-  }catch(err){ log('delete failed: '+err); }
+  }catch(err){ log('Löschen fehlgeschlagen: '+err); }
   finally { setBusy(false); }
 });
 
-// ---------- Analyze local files (file alternative) ----------
+// ---------- Dateien prüfen (Alternative) ----------
 btnAnalyze.addEventListener('click', async ()=>{
-  setBusy(true, 'Analyzing files…');
+  setBusy(true, 'Dateien werden analysiert …');
   try{
     await ensureCore();
-    const files = targetFileEl.files; if(!files || files.length===0){ log('pick at least one target file'); return; }
-    const key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
+    const files = targetFileEl.files; if(!files || files.length===0){ log('Bitte mindestens eine Datei wählen.'); return; }
+    const key = patternSelect.value; if(!key || key.startsWith('(noch keine')){ log('Bitte Muster auswählen.'); return; }
 
     const headWindow = parseInt(headWindowEl.value,10)||180;
     const frameSize = parseInt(frameSizeEl.value,10)||1024;
     const hop = parseInt(hopSizeEl.value,10)||512;
     const mfccC = parseInt(mfccCountEl.value,10)||13;
 
-    const pat = await KV.get(key); if(!pat){ log('pattern not found'); return; }
+    const pat = await KV.get(key); if(!pat){ log('Muster nicht gefunden.'); return; }
     const patData = float32FromB64(pat.feature_payload.data_b64);
     const patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
 
     const { metaMap } = parseBatch(batchInputEl.value);
-    const run = startRun('Analyzing files…');
+    const run = startRun('Analysiere Dateien …');
 
     for (let i=0; i<files.length; i++){
       if (run.aborted) break;
       const file = files[i];
-      log('decoding head window for '+file.name+' …');
 
       const durCtrl = run.makeController();
       const durationPromise =
@@ -316,30 +308,30 @@ btnAnalyze.addEventListener('click', async ()=>{
         conf, score
       ]);
     }
-  }catch(err){ log('analyze failed: '+err); }
+  }catch(err){ log('Analyse fehlgeschlagen: '+err); }
   finally { setBusy(false); endRun(); }
 });
 
-// ---------- Analyze batch (URL-first standard) ----------
+// ---------- Liste abarbeiten (URLs/TSV) ----------
 btnAnalyzeBatch.addEventListener('click', async ()=>{
-  setBusy(true, 'Analyzing URLs…');
+  setBusy(true, 'URLs werden analysiert …');
   try{
     await ensureCore();
-    const key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
+    const key = patternSelect.value; if(!key || key.startsWith('(noch keine')){ log('Bitte Muster auswählen.'); return; }
 
     const headWindow = parseInt(headWindowEl.value,10)||180;
     const frameSize = parseInt(frameSizeEl.value,10)||1024;
     const hop = parseInt(hopSizeEl.value,10)||512;
     const mfccC = parseInt(mfccCountEl.value,10)||13;
 
-    const pat = await KV.get(key); if(!pat){ log('pattern not found'); return; }
+    const pat = await KV.get(key); if(!pat){ log('Muster nicht gefunden.'); return; }
     const patData = float32FromB64(pat.feature_payload.data_b64);
     const patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
 
     const { metaMap, urls } = parseBatch(batchInputEl.value);
-    if (urls.length===0) { log('no URLs found in batch'); return; }
+    if (urls.length===0) { log('Keine URLs in der Liste gefunden.'); return; }
 
-    const run = startRun('Analyzing URLs…');
+    const run = startRun('URLs werden analysiert …');
 
     for (const u of urls){
       if (run.aborted) break;
@@ -355,7 +347,6 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
       if (run.aborted) break;
 
       const f = bufferToFileLike(obj.buffer, base);
-      log('downloaded head for '+u+' ('+(obj.buffer.byteLength/1048576).toFixed(1)+' MB)');
       const [buf, duration_s] = await Promise.all([
         decodeHeadToWav(f, headWindow, log),
         durationPromise
@@ -386,12 +377,12 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
       ]);
     }
   }catch(err){
-    if(String(err).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).');
-    log('analyze batch failed: '+err);
+    if(String(err).includes('TypeError')) log('Hinweis: CORS der Quelle fehlt (Access-Control-Allow-Origin).');
+    log('Abarbeitung fehlgeschlagen: '+err);
   } finally { setBusy(false); endRun(); }
 });
 
-// ---------- Export CSV ----------
+// ---------- CSV exportieren (Spaltennamen bewusst Englisch für Stabilität) ----------
 btnExportCsv.addEventListener('click', ()=>{
   const headers = ['cms_id','external_cms_id','video_url','video_id','duration_hhmmss','outro_start_mmss','outro_start_s','matched_pattern','intro_start_mmss','intro_start_s','confidence','score'];
   const rows=[headers];

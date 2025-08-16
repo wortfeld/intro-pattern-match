@@ -176,8 +176,12 @@
 
       <div class="row">
         <select id="patternSelect"></select>
-        <button id="btnDeletePattern" class="btn ghost">Ausgewähltes Muster löschen</button>
+        <button id="btnSavePattern" class="btn ghost">Muster speichern</button>
+        <button id="btnLoadPattern" class="btn ghost">Muster laden</button>
+        <input id="patternImportFile" type="file" accept="application/json,.json" style="display:none">
+        <button id="btnDeletePattern" class="btn ghost">Muster löschen</button>
       </div>
+
 
       <div class="row">
         <textarea id="batchInput" placeholder="Zeilen aus Excel einfügen (oder eine MP4-URL pro Zeile):

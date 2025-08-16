@@ -67,21 +67,19 @@
       <button id="btnDeletePattern">Delete selected pattern</button>
     </div>
 
-    <div class="row">
-      <textarea id="metaCsv" placeholder="Optional metadata: one line per item
-cms_id,external_cms_id,video_url(optional),duration(optional hh:mm:ss)"></textarea>
-    </div>
+   <div class="row">
+  <textarea id="batchInput" placeholder="Paste Excel rows (tab-separated):
+cms_id [TAB] external_cms_id [TAB] video_url (optional) [TAB] duration (optional hh:mm:ss)
+You can also paste plain URLs (one per line). Lines without tabs are treated as URLs."></textarea>
+</div>
 
-    <div class="row">
-      <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
-      <button id="btnAnalyze">Analyze selected file(s)</button>
-    </div>
-    <div class="row">
-      <textarea id="targetUrls" placeholder="One URL per line (https://…) – analyzed against the selected pattern in the first N seconds"></textarea>
-      <div class="col">
-        <button id="btnAnalyzeUrls">Analyze URL(s)</button>
-      </div>
-    </div>
+<div class="row">
+  <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
+  <button id="btnAnalyze">Analyze selected file(s)</button>
+  <button id="btnAnalyzeBatch">Analyze batch (from box)</button>
+  <button id="btnAbort">Abort</button>
+</div>
+
 
     <table id="resultsTable">
       <thead>

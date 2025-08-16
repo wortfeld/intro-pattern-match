@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,13 +15,15 @@
     button.ghost { background: transparent; border-color: #bbb; }
     button:disabled { opacity: .6; cursor: default; }
     input[type="text"], input[type="url"], select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
-    #log { white-space: pre-wrap; font-family: Consolas, Menlo, monospace; border: 1px solid #ddd; background: #fafafa; padding: 10px; border-radius: 8px; min-height: 140px; }
+    textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eee; font-size: 12px; margin-left: 8px; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
     .muted { color: #666; font-size: 12px; }
-    table { border-collapse: collapse; width: 100%; }
-    td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
-    textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
+    details > summary { cursor: pointer; user-select: none; font-weight: 600; }
+    details.muted > summary { color: #666; font-weight: 500; }
+    details .row { margin-top: 8px; }
 
     /* Busy overlay */
     .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; z-index: 999; }
@@ -30,119 +32,129 @@
     .spinner { width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    details > summary { cursor: pointer; user-select: none; font-weight: 600; }
-    details .row { margin-top: 8px; }
+    footer { margin-top: 32px; }
   </style>
 </head>
 <body>
   <h1>Intro Pattern Matcher</h1>
-  <div class="muted">Create and store an intro pattern, detect the intro start in the first N minutes of new files, and compute outro start from duration.</div>
 
   <!-- Busy overlay -->
   <div id="overlay" class="overlay hidden" aria-hidden="true">
     <div class="overlay-content">
       <div class="spinner" aria-hidden="true"></div>
-      <div id="busyLabel">Working…</div>
+      <div id="busyLabel">Bitte warten …</div>
     </div>
   </div>
 
+  <!-- Karte 1: Muster anlegen -->
   <div class="card">
+    <h2>Intro-Muster und Outro-Dauer</h2>
+
+    <!-- URL zuerst (Standard) -->
     <div class="row">
-      <span class="muted">Engine</span>
-      <span id="status" class="pill">ffmpeg: idle</span>
-      <span id="coreInfo" class="muted"></span>
+      <label>Name der Serie/Staffel:
+        <input id="patternName" type="text" placeholder="z. B. Serie S02 – Intro v1" size="40">
+      </label>
+      <label>Beispiel-Video:
+        <input id="refUrl" type="url" placeholder="https://beispiel.de/pfad/video.mp4" size="50">
+      </label>
+    </div>
+    <div class="row">
+      <label>Intro-Start:
+        <input id="introStart" type="text" placeholder="mm:ss oder Sekunden" size="12">
+      </label>
+      <label>Intro-Ende:
+        <input id="introEnd" type="text" placeholder="mm:ss oder Sekunden" size="12">
+      </label>
+      <label>Outro-Dauer:
+        <input id="outroDuration" type="text" placeholder="mm:ss oder Sekunden" size="12">
+      </label>
+      <button id="btnMakePatternFromUrl" class="primary">Muster erstellen</button>
     </div>
 
-    <details id="advanced">
-      <summary>Advanced settings</summary>
+    <!-- Alternative: Datei-Upload -->
+    <details class="muted">
+      <summary>Alternative: Direkter Videoupload</summary>
       <div class="row">
-        <label>Head window (s): <input type="text" id="headWindow" value="180" size="6"></label>
-        <label>Frame size: <input type="text" id="frameSize" value="1024" size="6"></label>
-        <label>Hop size: <input type="text" id="hopSize" value="512" size="6"></label>
-        <label>MFCC coeffs: <input type="text" id="mfccCount" value="13" size="4"></label>
+        <input id="refFile" type="file" accept="video/*,audio/*">
+        <button id="btnMakePattern">Muster aus Datei erstellen</button>
       </div>
     </details>
-    <div class="muted">Tip: You usually don’t need to touch Advanced. The engine loads automatically when you start.</div>
   </div>
 
+  <!-- Karte 2: Muster wählen und prüfen -->
   <div class="card">
-    <h2>1) Create & save pattern</h2>
-
-    <!-- URL-first (standard) -->
-    <div class="row">
-      <input id="refUrl" type="url" placeholder="https://example.com/path/to/reference.mp4" size="60">
-      <input id="patternName" type="text" placeholder="Pattern name (e.g., Series S02 – Intro v1)" size="40">
-    </div>
-    <div class="row">
-      <label>Intro start (mm:ss or seconds): <input id="introStart" type="text" placeholder="e.g. 01:23" size="10"></label>
-      <label>Intro end (mm:ss or seconds): <input id="introEnd" type="text" placeholder="e.g. 01:53" size="10"></label>
-      <label>Outro duration (mm:ss or seconds): <input id="outroDuration" type="text" placeholder="e.g. 00:30" size="10"></label>
-      <button id="btnMakePatternFromUrl" class="primary">Fetch URL & Save Pattern</button>
-    </div>
-    <div class="muted">The marked segment will be decoded (mono, 16 kHz), MFCC features computed and stored locally. No server.</div>
-
-    <!-- OR: file alternative -->
-    <div class="row">
-      <div class="muted">— or —</div>
-    </div>
-    <div class="row">
-      <input id="refFile" type="file" accept="video/*,audio/*">
-      <button id="btnMakePattern">Extract & Save Pattern (from file)</button>
-    </div>
-    <div class="muted">Note: For URLs, the source must allow CORS (Access-Control-Allow-Origin). Large files may take time.</div>
-  </div>
-
-  <div class="card">
-    <h2>2) Select pattern & detect in a new file</h2>
+    <h2>Muster auswählen und Videos checken</h2>
 
     <div class="row">
       <select id="patternSelect"></select>
-      <button id="btnDeletePattern" class="ghost">Delete selected pattern</button>
+      <button id="btnDeletePattern" class="ghost">Ausgewähltes Muster löschen</button>
     </div>
 
-    <!-- URL-first (batch box) -->
+    <!-- URL/TSV Batch -->
     <div class="row">
-      <textarea id="batchInput" placeholder="Paste Excel rows (tab-separated) or plain URLs:
-cms_id [TAB] external_cms_id [TAB] video_url (optional) [TAB] duration (optional hh:mm:ss)"></textarea>
+      <textarea id="batchInput" placeholder="Excel-Zeilen einfügen (TAB-getrennt) oder einfache URLs (eine pro Zeile):
+cms_id [TAB] externe_cms_id [TAB] video_url (optional) [TAB] dauer (optional hh:mm:ss)"></textarea>
     </div>
     <div class="row">
-      <button id="btnAnalyzeBatch" class="primary">Analyze batch (from box)</button>
-      <button id="btnAbort">Abort</button>
+      <button id="btnAnalyzeBatch" class="primary">Liste abarbeiten</button>
+      <button id="btnAbort">Abbrechen</button>
     </div>
 
-    <!-- OR: files alternative -->
-    <div class="row">
-      <div class="muted">— or —</div>
-    </div>
-    <div class="row">
-      <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
-      <button id="btnAnalyze">Analyze selected file(s)</button>
-    </div>
+    <!-- Alternative: mehrere Dateien -->
+    <details class="muted">
+      <summary>Alternative: Direkter Videoupload</summary>
+      <div class="row">
+        <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
+        <button id="btnAnalyze">Ausgewählte Datei(en) prüfen</button>
+      </div>
+    </details>
 
     <table id="resultsTable">
       <thead>
         <tr>
-          <th>cms_id</th>
-          <th>external_cms_id</th>
-          <th>video_url</th>
-          <th>video_id</th>
-          <th>duration_hh:mm:ss</th>
-          <th>outro_start_mm:ss</th>
-          <th>outro_start_s</th>
-          <th>matched_pattern</th>
-          <th>intro_start_mm:ss</th>
-          <th>intro_start_s</th>
-          <th>confidence</th>
-          <th>score</th>
+          <th>CMS-ID</th>
+          <th>Externe CMS-ID</th>
+          <th>Video-URL</th>
+          <th>Video-ID</th>
+          <th>Dauer (hh:mm:ss)</th>
+          <th>Outro-Start (mm:ss)</th>
+          <th>Outro-Start (s)</th>
+          <th>Erkanntes Muster</th>
+          <th>Intro-Start (mm:ss)</th>
+          <th>Intro-Start (s)</th>
+          <th>Konfidenz</th>
+          <th>Score</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
-    <div class="row"><button id="btnExportCsv" class="ghost">Export CSV</button></div>
+    <div class="row"><button id="btnExportCsv" class="ghost">CSV exportieren</button></div>
   </div>
 
-  <h2>Log</h2>
+  <!-- Protokoll -->
+  <h2>Protokoll</h2>
   <div id="log"></div>
+
+  <!-- Fußbereich: Technik & Einstellungen -->
+  <footer>
+    <div class="card">
+      <div class="row">
+        <span class="muted">Engine</span>
+        <span id="status" class="pill">ffmpeg: Leerlauf</span>
+        <span id="coreInfo" class="muted"></span>
+      </div>
+      <details id="advanced" class="muted">
+        <summary>Erweiterte Einstellungen</summary>
+        <div class="row">
+          <label>Head-Fenster (s): <input type="text" id="headWindow" value="180" size="6"></label>
+          <label>Frame-Größe: <input type="text" id="frameSize" value="1024" size="6"></label>
+          <label>Hop-Größe: <input type="text" id="hopSize" value="512" size="6"></label>
+          <label>MFCC-Koeff.: <input type="text" id="mfccCount" value="13" size="4"></label>
+        </div>
+      </details>
+    </div>
+  </footer>
 
   <!-- Vendor: UMD globals -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>

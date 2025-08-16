@@ -14,7 +14,12 @@ import { parseWavPCM16, computeMFCC } from './features.js';
 import { slidingDistance } from './matcher.js';
 import { logger, addResultRowRich } from './ui.js';
 import {
-  parseTime, fmtMMSS, fmtHHMMSS, basenameFromUrl, uuid, parseBatch
+  parseTime,
+  fmtMMSS,
+  fmtHHMMSS,
+  basenameFromUrl,
+  uuid,
+  parseBatch
 } from './meta.js';
 
 const logEl = document.getElementById('log');
@@ -48,25 +53,36 @@ const btnAbort = document.getElementById('btnAbort');
 const resultsTable = document.getElementById('resultsTable').querySelector('tbody');
 const btnExportCsv = document.getElementById('btnExportCsv');
 const btnExportXml = document.getElementById('btnExportXml');
+
 const overlay = document.getElementById('overlay');
 const busyLabel = document.getElementById('busyLabel');
+const overlayAbort = document.getElementById('overlayAbort');
 
 window.addEventListener('error', e=>log('window error: ' + e.message));
 window.addEventListener('unhandledrejection', e=>log('unhandled rejection: ' + (e?.reason?.message || e?.reason || 'unknown')));
 
 // ---------- Busy UI ----------
 let busyCount = 0;
-function setBusy(on, label='Bitte warten …'){
+function setBusy(on, label='Bitte warten …', cancellable=false){
   busyCount += on ? 1 : -1;
   if (busyCount < 0) busyCount = 0;
   const active = busyCount > 0;
+
   document.body.toggleAttribute('aria-busy', active);
   overlay.classList.toggle('hidden', !active);
   overlay.setAttribute('aria-hidden', String(!active));
   busyLabel.textContent = label;
+
+  // Overlay-Abbrechen anzeigen/ausblenden
+  if (overlayAbort) {
+    overlayAbort.style.display = cancellable ? 'inline' : 'none';
+    overlayAbort.disabled = !cancellable;
+  }
+
+  // restliche Controls sperren (Overlay-Abbrechen & alter Abbrechen-Button nicht sperren)
   const controls = document.querySelectorAll('button, input, textarea, select');
   controls.forEach(el => {
-    if (el === btnAbort) return;
+    if (el === overlayAbort || el === btnAbort) return;
     if (active) el.setAttribute('disabled','disabled');
     else el.removeAttribute('disabled');
   });
@@ -74,7 +90,7 @@ function setBusy(on, label='Bitte warten …'){
 
 // ---------- Abort/run controller ----------
 let currentRun = null;
-function startRun(label='Bitte warten …'){
+function startRun(label='Bitte warten …', cancellable=true){
   if (currentRun && !currentRun.aborted) endRun();
   const ctx = {
     id: Math.random().toString(36).slice(2),
@@ -93,7 +109,7 @@ function startRun(label='Bitte warten …'){
     }
   };
   currentRun = ctx;
-  setBusy(true, label);
+  setBusy(true, label, cancellable);
   return ctx;
 }
 function endRun(){
@@ -101,6 +117,19 @@ function endRun(){
   currentRun = null;
 }
 btnAbort.addEventListener('click', ()=>{ if (currentRun) currentRun.abortAll(); log('abgebrochen.'); });
+if (overlayAbort) {
+  overlayAbort.addEventListener('click', (e)=>{
+    e.preventDefault();
+    if (currentRun) currentRun.abortAll();
+    log('abgebrochen.');
+  });
+}
+document.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape' && currentRun) {
+    currentRun.abortAll();
+    log('abgebrochen.');
+  }
+});
 
 // ---------- Helpers ----------
 function b64FromFloat32(f32){
@@ -116,33 +145,6 @@ function float32FromB64(b64){
   return new Float32Array(ab);
 }
 
-function toHHMMSSFixed(seconds){
-  const s = Math.max(0, Math.floor(Number(seconds) || 0));
-  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
-  return [h,m,sec].map(n => String(n).padStart(2,'0')).join(':');
-}
-function xmlEscape(str){
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-    .replace(/'/g,'&apos;');
-}
-async function loadPatternsByName(){
-  const map = {};
-  const keys = await KV.keys();
-  for (const k of keys){
-    const v = await KV.get(k);
-    if (v && v.name){
-      map[v.name] = {
-        intro_duration_s: v?.reference_timing?.intro_duration_s,
-        outro_duration_s: v?.reference_timing?.outro_duration_s
-      };
-    }
-  }
-  return map;
-}
-    
-    
 async function ensureCore(){
   statusEl.textContent = 'ffmpeg: lädt …';
   try {
@@ -175,7 +177,7 @@ function addResultRow(cells){ addResultRowRich(resultsTable, cells); }
 
 // ---------- Muster erstellen (URL, Standard) ----------
 btnMakePatternFromUrl.addEventListener('click', async ()=>{
-  setBusy(true, 'Muster wird erstellt …');
+  setBusy(true, 'Muster wird erstellt …', false);
   try{
     await ensureCore();
     const url = (refUrlEl.value||'').trim(); if(!url){ log('Bitte Referenz-URL eingeben.'); return; }
@@ -222,7 +224,7 @@ btnMakePatternFromUrl.addEventListener('click', async ()=>{
 
 // ---------- Muster erstellen (Datei, Alternative) ----------
 btnMakePattern.addEventListener('click', async ()=>{
-  setBusy(true, 'Muster wird erstellt …');
+  setBusy(true, 'Muster wird erstellt …', false);
   try{
     await ensureCore();
     const f = refFileEl.files && refFileEl.files[0]; if(!f){ log('Bitte Datei auswählen.'); return; }
@@ -264,7 +266,7 @@ btnMakePattern.addEventListener('click', async ()=>{
 
 // ---------- Muster löschen ----------
 btnDeletePattern.addEventListener('click', async ()=>{
-  setBusy(true, 'Löschen …');
+  setBusy(true, 'Löschen …', false);
   try{
     const key = patternSelect.value;
     if(!key || key.startsWith('(noch keine')) return;
@@ -277,7 +279,7 @@ btnDeletePattern.addEventListener('click', async ()=>{
 
 // ---------- Dateien prüfen (Alternative) ----------
 btnAnalyze.addEventListener('click', async ()=>{
-  setBusy(true, 'Dateien werden analysiert …');
+  setBusy(true, 'Dateien werden analysiert …', true);
   try{
     await ensureCore();
     const files = targetFileEl.files; if(!files || files.length===0){ log('Bitte mindestens eine Datei wählen.'); return; }
@@ -293,7 +295,7 @@ btnAnalyze.addEventListener('click', async ()=>{
     const patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
 
     const { metaMap } = parseBatch(batchInputEl.value);
-    const run = startRun('Analysiere Dateien …');
+    const run = startRun('Analysiere Dateien …', true);
 
     for (let i=0; i<files.length; i++){
       if (run.aborted) break;
@@ -341,7 +343,7 @@ btnAnalyze.addEventListener('click', async ()=>{
 
 // ---------- Liste abarbeiten (URLs/TSV) ----------
 btnAnalyzeBatch.addEventListener('click', async ()=>{
-  setBusy(true, 'URLs werden analysiert …');
+  setBusy(true, 'URLs werden analysiert …', true);
   try{
     await ensureCore();
     const key = patternSelect.value; if(!key || key.startsWith('(noch keine')){ log('Bitte Muster auswählen.'); return; }
@@ -358,7 +360,7 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
     const { metaMap, urls } = parseBatch(batchInputEl.value);
     if (urls.length===0) { log('Keine URLs in der Liste gefunden.'); return; }
 
-    const run = startRun('URLs werden analysiert …');
+    const run = startRun('URLs werden analysiert …', true);
 
     for (const u of urls){
       if (run.aborted) break;
@@ -409,7 +411,7 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
   } finally { setBusy(false); endRun(); }
 });
 
-// ---------- CSV exportieren (Spaltennamen bewusst Englisch für Stabilität) ----------
+// ---------- CSV exportieren ----------
 btnExportCsv.addEventListener('click', ()=>{
   const headers = ['cms_id','external_cms_id','video_url','video_id','duration_hhmmss','outro_start_mmss','outro_start_s','matched_pattern','intro_start_mmss','intro_start_s','confidence','score'];
   const rows=[headers];
@@ -426,12 +428,37 @@ btnExportCsv.addEventListener('click', ()=>{
   URL.revokeObjectURL(url);
 });
 
+// ---------- Update-XML exportieren ----------
+function toHHMMSSFixed(seconds){
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return [h,m,sec].map(n => String(n).padStart(2,'0')).join(':');
+}
+function xmlEscape(str){
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
+}
+async function loadPatternsByName(){
+  const map = {};
+  const keys = await KV.keys();
+  for (const k of keys){
+    const v = await KV.get(k);
+    if (v && v.name){
+      map[v.name] = {
+        intro_duration_s: v?.reference_timing?.intro_duration_s,
+        outro_duration_s: v?.reference_timing?.outro_duration_s
+      };
+    }
+  }
+  return map;
+}
 btnExportXml.addEventListener('click', async ()=>{
-  setBusy(true, 'XML wird erstellt …');
+  setBusy(true, 'XML wird erstellt …', false);
   try{
     const patterns = await loadPatternsByName();
 
-    // Sammle Dokumente aus allen Tabellenzeilen
     const docs = [];
     const trs = resultsTable.querySelectorAll('tr');
 
@@ -446,7 +473,6 @@ btnExportXml.addEventListener('click', async ()=>{
       const patName     = tds[7].textContent.trim();
       const introStartS = parseFloat(tds[9].textContent) || NaN;
 
-      // Dauer aus Pattern (bevorzugt), sonst heuristisch
       const pat = patterns[patName] || {};
       const introDurS = Number.isFinite(pat.intro_duration_s)
         ? Math.round(pat.intro_duration_s) : 0;
@@ -455,11 +481,8 @@ btnExportXml.addEventListener('click', async ()=>{
         ? Math.round(pat.outro_duration_s) : 0;
 
       if (!outroDurS) {
-        // Fallback: aus Gesamtdauer - Outro-Start berechnen
         const totalS = (()=>{
-          // parseTime kann hh:mm:ss -> Sekunden
           const s = (durationStr || '').trim();
-          // parseTime stammt aus meta.js und ist global importiert
           const v = parseTime(s);
           return Number.isFinite(v) ? v : NaN;
         })();
@@ -471,7 +494,6 @@ btnExportXml.addEventListener('click', async ()=>{
       const introTime = Number.isFinite(introStartS) ? toHHMMSSFixed(introStartS) : '00:00:00';
       const outroTime = Number.isFinite(outroStartS) ? toHHMMSSFixed(outroStartS) : '00:00:00';
 
-      // Baue ein <document> Fragment
       const doc =
 `  <document nodeType="unified-nt:video" externalID="${xmlEscape(externalId)}">
     <properties />
@@ -547,8 +569,6 @@ ${docs.join('\n')}
     setBusy(false);
   }
 });
-    
-    
-    
+
 // ---------- init ----------
 refreshPatternList();

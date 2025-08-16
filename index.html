@@ -5,169 +5,237 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Intro Pattern Matcher</title>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
-    h1 { font-size: 18px; margin: 0 0 8px; }
-    h2 { font-size: 16px; margin: 24px 0 8px; }
-    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
-    .col { display: flex; flex-direction: column; gap: 8px; }
-    button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; background: #f7f7f7; cursor: pointer; }
-    button.primary { background: #195ef7; color: #fff; border-color: #195ef7; }
-    button.ghost { background: transparent; border-color: #bbb; }
-    button:disabled { opacity: .6; cursor: default; }
-    input[type="text"], input[type="url"], select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
-    textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
-    table { border-collapse: collapse; width: 100%; }
-    td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eee; font-size: 12px; margin-left: 8px; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    .muted { color: #666; font-size: 12px; }
-    details > summary { cursor: pointer; user-select: none; font-weight: 600; }
-    details.muted > summary { color: #666; font-weight: 500; }
-    details .row { margin-top: 8px; }
-
-    /* Busy overlay */
-    .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; z-index: 999; }
-    .hidden { display: none !important; }
-    .overlay-content { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #ddd; border-radius: 12px; background: #fff; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
-    .spinner { width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    footer { margin-top: 32px; }
-    button.linklike {
-    background: none; border: none; padding: 0; margin-left: 8px;
-    color: #195ef7; text-decoration: underline; cursor: pointer; font: inherit;
+    :root{
+      --brand:#0e56ab;
+      --brand-hover:#1174e4;
+      --bg:#f7f7f8;
+      --line:#ccc;
+      --muted:#666;
+      --muted-2:#999;
+      --row-alt:#f2f2f2;
+      --danger:#d00;
+      --shadow:0 10px 30px rgba(0,0,0,.12);
+      --card-bg:#fff;
+      --radius:10px;
+      --focus:2px solid var(--brand-hover);
+      --container:1100px;
     }
-    button.linklike:disabled { opacity: .6; cursor: default; text-decoration: none; }  
+
+    *{ box-sizing:border-box }
+    html,body { height:100% }
+    body {
+      margin:0; background:#fff; color:#111; line-height:1.4;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    /* Layout */
+    .wrap { max-width: var(--container); margin: 0 auto; padding: 24px 24px 40px; }
+    header { margin-bottom: 8px; }
+    h1 { margin:0 0 6px 0; font-size: 28px; font-weight: 700; letter-spacing:.2px; color:#0b2f5e; }
+    h2 { margin:18px 0 12px; font-size: 18px; font-weight: 700; color:#0b2f5e; }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border:1px solid #e6e6e6;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding:16px;
+      margin: 16px 0;
+    }
+
+    .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
+    .muted { color: var(--muted); font-size: 12px; }
+
+    /* Inputs */
+    input[type="text"], input[type="url"], select, textarea {
+      padding: 10px 12px; border:1px solid var(--line); border-radius:8px; font: inherit;
+      outline: none; transition: border-color .15s, box-shadow .15s;
+      background:#fff; min-height: 38px;
+    }
+    input:focus, select:focus, textarea:focus { outline: var(--focus); }
+    textarea { width:100%; min-height:110px; font-family: Consolas, Menlo, monospace; }
+
+    /* Buttons */
+    .btn { font: inherit; font-weight:700; padding:.55rem .9rem; border:none; border-radius:8px; cursor:pointer;
+           background-color: var(--brand); color:#fff; transition: background-color .15s, transform .02s; }
+    .btn:hover { background-color: var(--brand-hover); }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { background:#cfd6e1; cursor:not-allowed; }
+    .btn.ghost { background:#eef3fb; color:#0b2f5e; border:1px solid #d7e3f7; }
+    .btn.ghost:hover { background:#e6eefc; }
+    .btn.small{ padding:.35rem .6rem; font-weight:600; }
+
+    /* Pill/Status */
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef3fb; color:#0b2f5e; font-size:12px; margin-left:8px; border:1px solid #d7e3f7; }
+
+    /* Details toggles */
+    details > summary { cursor:pointer; user-select:none; font-weight:600; }
+    details.muted > summary { color: var(--muted); font-weight:500; }
+    details .row { margin-top:8px; }
+
+    /* Table */
+    table { border-collapse: collapse; width:100%; margin-top: 6px; }
+    th, td { border:1px solid #e6e6e6; padding:8px 10px; text-align:left; font-size:13px; vertical-align: top; }
+    thead th { background:#eee; color:#222; }
+    tbody tr:nth-child(even){ background: var(--row-alt); }
+
+    /* Overlay */
+    .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.75); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .hidden { display: none !important; }
+    .overlay-content {
+      display:flex; align-items:center; gap:12px;
+      background:#fff; border:1px solid #e6e6e6; border-radius:12px; box-shadow: var(--shadow); padding:12px 16px;
+    }
+    .spinner { width:20px; height:20px; border:3px solid #f3f3f3; border-top:3px solid var(--brand); border-radius:50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
+    #busyLabel { font-weight:600; color:#0b2f5e; }
+
+    /* "Link-like" button used in overlay for Abbrechen */
+    button.linklike {
+      background: none; border: none; padding: 0; margin-left: 8px;
+      color: var(--brand); text-decoration: underline; cursor: pointer; font: inherit;
+    }
+    button.linklike:hover { color: var(--brand-hover); }
+    button.linklike:disabled { opacity:.6; cursor: default; text-decoration: none; }
+
+    /* Footer block */
+    footer { margin-top: 28px; }
   </style>
 </head>
 <body>
-  <h1>Intro Pattern Matcher</h1>
+  <div class="wrap">
+    <header>
+      <h1>Intro Pattern Matcher</h1>
+    </header>
 
-  <!-- Busy overlay -->
-<div id="overlay" class="overlay hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-live="polite">
-  <div class="overlay-content">
-    <div class="spinner" aria-hidden="true"></div>
-    <div>
-      <span id="busyLabel">Bitte warten …</span>
-      <button id="overlayAbort" class="linklike">Abbrechen</button>
-    </div>
-  </div>
-</div>
-
-  <!-- Karte 1: Muster anlegen -->
-  <div class="card">
-    <h2>Intro-Muster und Outro-Dauer</h2>
-
-    <!-- URL zuerst (Standard) -->
-    <div class="row">
-      <label>Name der Serie/Staffel:
-        <input id="patternName" type="text" placeholder="z. B. Serie S02 – Intro v1" size="40">
-      </label>
-      <label>Beispiel-Video:
-        <input id="refUrl" type="url" placeholder="https://beispiel.de/pfad/video.mp4" size="50">
-      </label>
-    </div>
-    <div class="row">
-      <label>Intro-Start:
-        <input id="introStart" type="text" placeholder="mm:ss oder Sekunden" size="12">
-      </label>
-      <label>Intro-Ende:
-        <input id="introEnd" type="text" placeholder="mm:ss oder Sekunden" size="12">
-      </label>
-      <label>Outro-Dauer:
-        <input id="outroDuration" type="text" placeholder="mm:ss oder Sekunden" size="12">
-      </label>
-      <button id="btnMakePatternFromUrl" class="primary">Muster erstellen</button>
-    </div>
-
-    <!-- Alternative: Datei-Upload -->
-    <details class="muted">
-      <summary>Alternative: Direkter Videoupload</summary>
-      <div class="row">
-        <input id="refFile" type="file" accept="video/*,audio/*">
-        <button id="btnMakePattern">Muster aus Datei erstellen</button>
+    <!-- Busy overlay (mit Abbrechen-Link) -->
+    <div id="overlay" class="overlay hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-live="polite">
+      <div class="overlay-content">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>
+          <span id="busyLabel">Bitte warten …</span>
+          <button id="overlayAbort" class="linklike">Abbrechen</button>
+        </div>
       </div>
-    </details>
-  </div>
-
-  <!-- Karte 2: Muster wählen und prüfen -->
-  <div class="card">
-    <h2>Muster auswählen und Videos checken</h2>
-
-    <div class="row">
-      <select id="patternSelect"></select>
-      <button id="btnDeletePattern" class="ghost">Ausgewähltes Muster löschen</button>
     </div>
 
-    <!-- URL/TSV Batch -->
-    <div class="row">
-      <textarea id="batchInput" placeholder="Zeilen aus Excel einfügen (oder eine MP4-URL pro Zeile):
-CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
-    </div>
-    <div class="row">
-      <button id="btnAnalyzeBatch" class="primary">Liste abarbeiten</button>
-      <button id="btnAbort">Abbrechen</button>
-    </div>
-
-    <!-- Alternative: mehrere Dateien -->
-    <details class="muted">
-      <summary>Alternative: Direkter Videoupload</summary>
-      <div class="row">
-        <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
-        <button id="btnAnalyze">Ausgewählte Datei(en) prüfen</button>
-      </div>
-    </details>
-
-    <table id="resultsTable">
-      <thead>
-        <tr>
-          <th>CMS-ID</th>
-          <th>Externe CMS-ID</th>
-          <th>Video-URL</th>
-          <th>Video-ID</th>
-          <th>Dauer (hh:mm:ss)</th>
-          <th>Outro-Start (mm:ss)</th>
-          <th>Outro-Start (s)</th>
-          <th>Erkanntes Muster</th>
-          <th>Intro-Start (mm:ss)</th>
-          <th>Intro-Start (s)</th>
-          <th>Konfidenz</th>
-          <th>Score</th> 
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  <div class="row">
-    <button id="btnExportCsv" class="ghost">CSV exportieren</button>
-    <button id="btnExportXml" class="ghost">Update-XML</button>
-  </div>
-  </div>
-
-
-  <!-- Fußbereich: Technik & Einstellungen -->
-  <footer>
+    <!-- Karte 1: Muster anlegen -->
     <div class="card">
+      <h2>Intro-Muster und Outro-Dauer</h2>
+
+      <!-- URL zuerst (Standard) -->
       <div class="row">
-        <span class="muted">Engine</span>
-        <span id="status" class="pill">ffmpeg: Leerlauf</span>
-        <span id="coreInfo" class="muted"></span>
+        <label>Name der Serie/Staffel:
+          <input id="patternName" type="text" placeholder="z. B. Serie S02 – Intro v1" size="40">
+        </label>
+        <label>Beispiel-Video:
+          <input id="refUrl" type="url" placeholder="https://beispiel.de/pfad/video.mp4" size="50">
+        </label>
       </div>
-      <details id="advanced" class="muted">
-        <summary>Erweiterte Einstellungen</summary>
+      <div class="row">
+        <label>Intro-Start:
+          <input id="introStart" type="text" placeholder="mm:ss oder Sekunden" size="12">
+        </label>
+        <label>Intro-Ende:
+          <input id="introEnd" type="text" placeholder="mm:ss oder Sekunden" size="12">
+        </label>
+        <label>Outro-Dauer:
+          <input id="outroDuration" type="text" placeholder="mm:ss oder Sekunden" size="12">
+        </label>
+        <button id="btnMakePatternFromUrl" class="btn">Muster erstellen</button>
+      </div>
+
+      <!-- Alternative: Datei-Upload -->
+      <details class="muted">
+        <summary>Alternative: Direkter Videoupload</summary>
         <div class="row">
-          <label>Head-Fenster (s): <input type="text" id="headWindow" value="180" size="6"></label>
-          <label>Frame-Größe: <input type="text" id="frameSize" value="1024" size="6"></label>
-          <label>Hop-Größe: <input type="text" id="hopSize" value="512" size="6"></label>
-          <label>MFCC-Koeff.: <input type="text" id="mfccCount" value="13" size="4"></label>
+          <input id="refFile" type="file" accept="video/*,audio/*">
+          <button id="btnMakePattern" class="btn ghost">Muster aus Datei erstellen</button>
         </div>
       </details>
-      <details class="muted">
-        <summary>Protokoll (aufklappen)</summary>
-        <div id="log" style="margin-top:8px;"></div>
-     </details>
-
     </div>
-  </footer>
+
+    <!-- Karte 2: Muster wählen und prüfen -->
+    <div class="card">
+      <h2>Muster auswählen und Videos checken</h2>
+
+      <div class="row">
+        <select id="patternSelect"></select>
+        <button id="btnDeletePattern" class="btn ghost">Ausgewähltes Muster löschen</button>
+      </div>
+
+      <!-- URL/TSV Batch -->
+      <div class="row">
+        <textarea id="batchInput" placeholder="Zeilen aus Excel einfügen (oder eine MP4-URL pro Zeile):
+CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
+      </div>
+      <div class="row">
+        <button id="btnAnalyzeBatch" class="btn">Liste abarbeiten</button>
+        <button id="btnAbort" class="btn ghost">Abbrechen</button>
+      </div>
+
+      <!-- Alternative: mehrere Dateien -->
+      <details class="muted">
+        <summary>Alternative: Direkter Videoupload</summary>
+        <div class="row">
+          <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
+          <button id="btnAnalyze" class="btn ghost">Ausgewählte Datei(en) prüfen</button>
+        </div>
+      </details>
+
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>CMS-ID</th>
+            <th>Externe CMS-ID</th>
+            <th>Video-URL</th>
+            <th>Video-ID</th>
+            <th>Dauer (hh:mm:ss)</th>
+            <th>Outro-Start (mm:ss)</th>
+            <th>Outro-Start (s)</th>
+            <th>Erkanntes Muster</th>
+            <th>Intro-Start (mm:ss)</th>
+            <th>Intro-Start (s)</th>
+            <th>Konfidenz</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="row">
+        <button id="btnExportCsv" class="btn ghost">CSV exportieren</button>
+        <button id="btnExportXml" class="btn ghost">Update-XML</button>
+      </div>
+    </div>
+
+    <!-- Footer: Engine + Advanced + Protokoll -->
+    <footer>
+      <div class="card">
+        <div class="row">
+          <span class="muted">Engine</span>
+          <span id="status" class="pill">ffmpeg: Leerlauf</span>
+          <span id="coreInfo" class="muted"></span>
+        </div>
+
+        <details id="advanced" class="muted">
+          <summary>Erweiterte Einstellungen</summary>
+          <div class="row">
+            <label>Head-Fenster (s): <input type="text" id="headWindow" value="180" size="6"></label>
+            <label>Frame-Größe: <input type="text" id="frameSize" value="1024" size="6"></label>
+            <label>Hop-Größe: <input type="text" id="hopSize" value="512" size="6"></label>
+            <label>MFCC-Koeff.: <input type="text" id="mfccCount" value="13" size="4"></label>
+          </div>
+        </details>
+
+        <details class="muted" style="margin-top:8px;">
+          <summary>Protokoll (aufklappen)</summary>
+          <div id="log" style="margin-top:8px;"></div>
+        </details>
+      </div>
+    </footer>
+  </div>
 
   <!-- Vendor: UMD globals -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>

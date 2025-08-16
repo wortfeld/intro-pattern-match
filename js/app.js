@@ -43,6 +43,9 @@ const refUrlEl = document.getElementById('refUrl');
 const btnMakePatternFromUrl = document.getElementById('btnMakePatternFromUrl');
 
 const patternSelect = document.getElementById('patternSelect');
+const btnSavePattern = document.getElementById('btnSavePattern');
+const btnLoadPattern = document.getElementById('btnLoadPattern');
+const patternImportFile = document.getElementById('patternImportFile');
 const btnDeletePattern = document.getElementById('btnDeletePattern');
 
 const batchInputEl = document.getElementById('batchInput');
@@ -66,7 +69,7 @@ const playerClose = document.getElementById('playerClose');
 const playerMeta = document.getElementById('playerMeta');
 const playerTitle = document.getElementById('playerTitle');
 
-// ---- Edit overlay refs (neu) ----
+// ---- Edit overlay refs ----
 const editOverlay = document.getElementById('editOverlay');
 const editTitle = document.getElementById('editTitle');
 const editIntro = document.getElementById('editIntro');
@@ -172,7 +175,7 @@ async function ensureCore(){
   }
 }
 
-function refreshPatternList(){
+function refreshPatternList(selectedId=null){
   return KV.keys().then(keys => Promise.all(keys.map(k => KV.get(k).then(v => ({ key:k, val:v })))))
     .then(items => {
       patternSelect.innerHTML='';
@@ -182,44 +185,18 @@ function refreshPatternList(){
       items.forEach(it=>{
         const opt=document.createElement('option');
         opt.value=it.key; opt.textContent=it.val.name+' ('+it.key.substring(0,8)+')';
+        if (selectedId && it.key===selectedId) opt.selected = true;
         patternSelect.appendChild(opt);
       });
     });
 }
+function selectPatternById(id){
+  if (!id) return;
+  for (let i=0;i<patternSelect.options.length;i++){
+    if (patternSelect.options[i].value === id) { patternSelect.selectedIndex = i; break; }
+  }
+}
 
-// ---- Export-Name Helper ----
-function berlinStamp(){
-  const parts = new Intl.DateTimeFormat('de-DE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false
-  }).formatToParts(new Date());
-  const get = (k)=> parts.find(p=>p.type===k)?.value || '';
-  return { dateStr: `${get('year')}${get('month')}${get('day')}`, timeStr: `${get('hour')}${get('minute')}` };
-}
-function slugifyPatternName(s){
-  return String(s||'pattern')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // Diakritika weg
-    .toLowerCase().replace(/&/g,'-and-')
-    .replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
-}
-// Versucht zuerst das ausgewählte Muster (Select), sonst 1. Tabellenzeile (Muster-Spalte)
-function getPatternSlugForFilename(){
-  let name = '';
-  if (patternSelect && patternSelect.selectedIndex >= 0){
-    const txt = patternSelect.options[patternSelect.selectedIndex]?.textContent || '';
-    // "Name (abcd1234)" -> nur Name
-    name = txt.replace(/\s*\([^)]+\)\s*$/,'').trim();
-  }
-  if (!name) {
-    const firstRow = resultsTable.querySelector('tr');
-    const patCell = firstRow?.querySelector('td:nth-child(6)'); // "Erkanntes Muster"
-    if (patCell) name = patCell.textContent.trim();
-  }
-  return slugifyPatternName(name);
-}
-    
-    
 // ---- Player helpers ----
 function openPlayer(url, seconds, label='Vorschau'){
   if (!url) return;
@@ -251,7 +228,7 @@ function buildTimedUrl(rawUrl, seconds){
   catch { return rawUrl; }
 }
 
-// ---- Edit helpers (neu) ----
+// ---- Edit helpers ----
 function openEdit(tr){
   rowBeingEdited = tr;
   const introS = Number(tr.dataset.introS);
@@ -281,7 +258,6 @@ function applyEdit(){
   const introS = normToSeconds(editIntro.value);
   const outroS = normToSeconds(editOutro.value);
 
-  // Beide Felder optional, aber mind. eines sollte sinnvoll sein
   if (!Number.isFinite(introS) && !Number.isFinite(outroS)){
     alert('Bitte Intro und/oder Outro als mm:ss oder Sekunden angeben.');
     return;
@@ -404,7 +380,7 @@ btnMakePatternFromUrl.addEventListener('click', async ()=>{
     };
     await KV.set(pat.pattern_id, pat);
     log('Muster gespeichert: '+pat.name+' ['+pat.pattern_id+']');
-    await refreshPatternList();
+    await refreshPatternList(pat.pattern_id);
   }catch(err){
     if(String(err).includes('TypeError')) log('Hinweis: CORS der Quelle fehlt (Access-Control-Allow-Origin).');
     log('Muster aus URL fehlgeschlagen: '+err);
@@ -448,9 +424,95 @@ btnMakePattern.addEventListener('click', async ()=>{
     };
     await KV.set(pat.pattern_id, pat);
     log('Muster gespeichert: '+pat.name+' ['+pat.pattern_id+']');
-    await refreshPatternList();
+    await refreshPatternList(pat.pattern_id);
   }catch(err){ log('Muster aus Datei fehlgeschlagen: '+err); }
   finally { setBusy(false); }
+});
+
+// ---------- Muster speichern (Export .json) ----------
+function berlinStamp(){
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const get = (k)=> parts.find(p=>p.type===k)?.value || '';
+  return { dateStr: `${get('year')}${get('month')}${get('day')}`, timeStr: `${get('hour')}${get('minute')}` };
+}
+function slugify(s){
+  return String(s||'pattern')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/&/g,'-and-')
+    .replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+btnSavePattern.addEventListener('click', async ()=>{
+  try{
+    const key = patternSelect.value;
+    if(!key || key.startsWith('(noch keine')){ log('Bitte Muster auswählen.'); return; }
+    const pat = await KV.get(key);
+    if(!pat){ log('Muster nicht gefunden.'); return; }
+    const payload = {
+      _type: 'intro-pattern',
+      _version: '1.0.0',
+      exported_at: new Date().toISOString(),
+      pattern: pat
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const { dateStr, timeStr } = berlinStamp();
+    const fname = `pattern_${dateStr}_${timeStr}_${slugify(pat.name)}_${pat.pattern_id.slice(0,8)}.json`;
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+    URL.revokeObjectURL(url);
+    log('Muster exportiert: '+fname);
+  }catch(err){ log('Export fehlgeschlagen: '+err); }
+});
+
+// ---------- Muster laden (Import .json) ----------
+btnLoadPattern.addEventListener('click', ()=> patternImportFile?.click());
+patternImportFile?.addEventListener('change', async (e)=>{
+  try{
+    const f = e.target.files?.[0];
+    if(!f){ return; }
+    const text = await f.text();
+    let obj;
+    try { obj = JSON.parse(text); }
+    catch { log('Ungültige Datei: kein gültiges JSON.'); return; }
+
+    // erlaubt: entpackt pattern-Objekt oder Wrapper
+    const pat = obj?.pattern && obj._type==='intro-pattern' ? obj.pattern : obj;
+
+    // Minimal-Validierung
+    if (!pat || !pat.name || !pat.feature_payload?.data_b64 || !pat.reference_timing){
+      log('Ungültige Musterdatei: erforderliche Felder fehlen.');
+      return;
+    }
+
+    let id = pat.pattern_id && typeof pat.pattern_id === 'string' ? pat.pattern_id : null;
+    if (id) {
+      // Wenn ID schon existiert, neue ID vergeben
+      const existingKeys = await KV.keys();
+      if (existingKeys.includes(id)) {
+        id = uuid();
+      }
+    } else {
+      id = uuid();
+    }
+
+    const toStore = {
+      ...pat,
+      pattern_id: id,
+      imported_at: new Date().toISOString()
+    };
+    await KV.set(id, toStore);
+    await refreshPatternList(id);
+    selectPatternById(id);
+    log('Muster importiert: '+toStore.name+' ['+id+']');
+  }catch(err){
+    log('Import fehlgeschlagen: '+err);
+  } finally {
+    if (patternImportFile) patternImportFile.value = '';
+  }
 });
 
 // ---------- Muster löschen ----------
@@ -598,7 +660,7 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
   } finally { setBusy(false); endRun(); }
 });
 
-// ---------- CSV exportieren (angepasst an schlanke Tabelle) ----------
+// ---------- CSV exportieren (schlanke Tabelle + Dateiname mit Datum/Zeit/Slug) ----------
 btnExportCsv.addEventListener('click', ()=>{
   const headers = ['cms_id','external_cms_id','video_url','duration_hhmmss','outro_start_mmss','matched_pattern','intro_start_mmss','match'];
   const rows=[headers];
@@ -612,18 +674,23 @@ btnExportCsv.addEventListener('click', ()=>{
     rows.push(row);
   }
   const csv=rows.map(r=>r.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const { dateStr, timeStr } = berlinStamp();
-  const slug = getPatternSlugForFilename();
-  const filename = `update_${dateStr}_${timeStr}_${slug}.csv`;
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false
+  }).formatToParts(new Date());
+  const get=(k)=>parts.find(p=>p.type===k)?.value||'';
+  const dateStr=`${get('year')}${get('month')}${get('day')}`, timeStr=`${get('hour')}${get('minute')}`;
+  // Mustername aus Select
+  const selTxt = patternSelect.options[patternSelect.selectedIndex]?.textContent || '';
+  const patName = selTxt.replace(/\s*\([^)]+\)\s*$/,'').trim();
+  const slug = slugify(patName);
+  const a=document.createElement('a'); a.href=url; a.download=`update_${dateStr}_${timeStr}_${slug}.csv`; a.click();
   URL.revokeObjectURL(url);
-
 });
 
-// ---------- Update-XML exportieren (nutzt korrigierte Zeiten via dataset) ----------
+// ---------- Update-XML exportieren (nutzt korrigierte Zeiten, Dateiname mit Datum/Zeit/Slug) ----------
 function toHHMMSSFixed(seconds){
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
@@ -755,13 +822,19 @@ ${docs.join('\n')}
 
     const blob = new Blob([xml], { type: 'application/xml' });
     const urlBlob = URL.createObjectURL(blob);
-    const { dateStr, timeStr } = berlinStamp();
-    const slug = getPatternSlugForFilename();
-    const filename = `update_${dateStr}_${timeStr}_${slug}.xml`;
-    const a = document.createElement('a');
-    a.href = urlBlob; a.download = filename; a.click();
-    URL.revokeObjectURL(urlBlob);
+    const parts = new Intl.DateTimeFormat('de-DE', {
+      timeZone: 'Europe/Berlin',
+      year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false
+    }).formatToParts(new Date());
+    const get=(k)=>parts.find(p=>p.type===k)?.value||'';
+    const dateStr=`${get('year')}${get('month')}${get('day')}`, timeStr=`${get('hour')}${get('minute')}`;
+    const selTxt = patternSelect.options[patternSelect.selectedIndex]?.textContent || '';
+    const patNameSel = selTxt.replace(/\s*\([^)]+\)\s*$/,'').trim();
+    const slug = slugify(patNameSel);
 
+    const a = document.createElement('a');
+    a.href = urlBlob; a.download = `update_${dateStr}_${timeStr}_${slug}.xml`; a.click();
+    URL.revokeObjectURL(urlBlob);
   }catch(err){
     log('XML-Export fehlgeschlagen: '+err);
   }finally{

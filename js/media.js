@@ -82,3 +82,48 @@ export function getDurationFromSrc(src){
     el.src = src;
   });
 }
+
+export function fetchHeadUrl(url, maxBytes=64*1024*1024, signal){
+  return fetch(url, { headers: { 'Range': 'bytes=0-'+(maxBytes-1) }, mode: 'cors', signal })
+    .then(async r => {
+      if (r.status===206 || r.status===200) return { name: url, buffer: await r.arrayBuffer() };
+      throw new Error('HTTP '+r.status+' for '+url);
+    });
+}
+
+export function getDurationFromSrc(src, signal){
+  return new Promise((resolve,reject)=>{
+    const el = document.createElement('video');
+    el.preload='metadata'; el.crossOrigin='anonymous';
+
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    function cleanup(){
+      el.onloadedmetadata = null;
+      el.onerror = null;
+      try { el.removeAttribute('src'); el.load(); } catch {}
+      if (signal) signal.removeEventListener('abort', onAbort);
+    }
+
+    el.onloadedmetadata = () => {
+      const d = el.duration;
+      cleanup();
+      Number.isFinite(d)? resolve(d) : reject(new Error('duration unavailable'));
+    };
+    el.onerror = () => { cleanup(); reject(new Error('metadata load failed')); };
+
+    if (signal) {
+      if (signal.aborted) return onAbort();
+      signal.addEventListener('abort', onAbort);
+    }
+    el.src = src;
+  });
+}
+
+export function getDurationFromFile(file, signal){
+  const url = URL.createObjectURL(file);
+  return getDurationFromSrc(url, signal).finally(()=>URL.revokeObjectURL(url));
+}

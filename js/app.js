@@ -2,7 +2,7 @@
 import { KV } from './storage.js';
 import {
   ensureFFmpeg,
-  decodeHeadToWav, 
+  decodeHeadToWav,
   decodeSegmentToWav,
   fetchHeadUrl,
   fetchFullUrl,
@@ -59,12 +59,22 @@ const overlay = document.getElementById('overlay');
 const busyLabel = document.getElementById('busyLabel');
 const overlayAbort = document.getElementById('overlayAbort');
 
-// ---- Player overlay refs (neu) ----
+// ---- Player overlay refs ----
 const playerOverlay = document.getElementById('playerOverlay');
 const player = document.getElementById('player');
 const playerClose = document.getElementById('playerClose');
 const playerMeta = document.getElementById('playerMeta');
 const playerTitle = document.getElementById('playerTitle');
+
+// ---- Edit overlay refs (neu) ----
+const editOverlay = document.getElementById('editOverlay');
+const editTitle = document.getElementById('editTitle');
+const editIntro = document.getElementById('editIntro');
+const editOutro = document.getElementById('editOutro');
+const editSave = document.getElementById('editSave');
+const editClose = document.getElementById('editClose');
+
+let rowBeingEdited = null; // <tr> Referenz
 
 // ---------- Busy UI ----------
 let busyCount = 0;
@@ -130,8 +140,8 @@ if (overlayAbort) {
 document.addEventListener('keydown', (e)=>{
   if (e.key === 'Escape') {
     if (currentRun) { currentRun.abortAll(); log('abgebrochen.'); }
-    // Player schließen auf ESC
-    if (!playerOverlay.classList.contains('hidden')) closePlayer();
+    if (!playerOverlay?.classList.contains('hidden')) closePlayer();
+    if (!editOverlay?.classList.contains('hidden')) closeEdit();
   }
 });
 
@@ -177,92 +187,146 @@ function refreshPatternList(){
     });
 }
 
-// ---- Player helpers (neu) ----
+// ---- Player helpers ----
 function openPlayer(url, seconds, label='Vorschau'){
   if (!url) return;
   try { player.pause(); } catch {}
-  player.src = url;
-  player.currentTime = 0;
+  player.src = url; player.currentTime = 0;
   playerTitle.textContent = label;
   playerMeta.textContent = `Start bei ${fmtMMSS(seconds||0)} • Quelle: ${url}`;
-  playerOverlay.classList.remove('hidden');
-  playerOverlay.setAttribute('aria-hidden','false');
+  playerOverlay.classList.remove('hidden'); playerOverlay.setAttribute('aria-hidden','false');
 
   const seekTo = Math.max(0, Math.floor(Number(seconds)||0));
-  // Nach Metadata laden auf Zeit springen
   const onMeta = ()=>{
     player.currentTime = seekTo;
-    player.play().catch(()=>{ /* Autoplay blockiert -> egal */ });
+    player.play().catch(()=>{});
     player.removeEventListener('loadedmetadata', onMeta);
   };
   player.addEventListener('loadedmetadata', onMeta);
-  // Falls metadata sofort da sind
   if (player.readyState >= 1) onMeta();
 }
 function closePlayer(){
   try { player.pause(); } catch {}
   player.removeAttribute('src'); try { player.load(); } catch {}
-  playerOverlay.classList.add('hidden');
-  playerOverlay.setAttribute('aria-hidden','true');
+  playerOverlay.classList.add('hidden'); playerOverlay.setAttribute('aria-hidden','true');
 }
 playerClose?.addEventListener('click', closePlayer);
 playerOverlay?.addEventListener('click', (e)=>{ if (e.target === playerOverlay) closePlayer(); });
 
-// Öffne externen Testlink mit #t=SECONDS (nur wenn Hoster das versteht)
 function buildTimedUrl(rawUrl, seconds){
-  try {
-    const u = new URL(rawUrl);
-    u.hash = 't=' + Math.max(0, Math.floor(Number(seconds)||0));
-    return u.toString();
-  } catch { return rawUrl; }
+  try { const u = new URL(rawUrl); u.hash = 't=' + Math.max(0, Math.floor(Number(seconds)||0)); return u.toString(); }
+  catch { return rawUrl; }
 }
 
-// ---- Tabellenzeile (neu, kompakt) ----
-// Spalten: CMS-ID | Externe | URL | Dauer | Outro mm:ss | Muster | Intro mm:ss | Match | Test
+// ---- Edit helpers (neu) ----
+function openEdit(tr){
+  rowBeingEdited = tr;
+  const introS = Number(tr.dataset.introS);
+  const outroS = Number(tr.dataset.outroS);
+  editIntro.value = Number.isFinite(introS) ? fmtMMSS(introS) : '';
+  editOutro.value = Number.isFinite(outroS) ? fmtMMSS(outroS) : '';
+  editTitle.textContent = 'Zeiten korrigieren';
+  editOverlay.classList.remove('hidden');
+  editOverlay.setAttribute('aria-hidden','false');
+  setTimeout(()=>editIntro.focus(), 0);
+}
+function closeEdit(){
+  rowBeingEdited = null;
+  editOverlay.classList.add('hidden');
+  editOverlay.setAttribute('aria-hidden','true');
+}
+editClose?.addEventListener('click', closeEdit);
+editOverlay?.addEventListener('click', (e)=>{ if (e.target === editOverlay) closeEdit(); });
+
+function normToSeconds(val){
+  const s = parseTime((val||'').trim());
+  if (!Number.isFinite(s) || s < 0) return NaN;
+  return Math.floor(s);
+}
+function applyEdit(){
+  if (!rowBeingEdited) return;
+  const introS = normToSeconds(editIntro.value);
+  const outroS = normToSeconds(editOutro.value);
+
+  // Beide Felder optional, aber mind. eines sollte sinnvoll sein
+  if (!Number.isFinite(introS) && !Number.isFinite(outroS)){
+    alert('Bitte Intro und/oder Outro als mm:ss oder Sekunden angeben.');
+    return;
+  }
+  if (Number.isFinite(introS)){
+    rowBeingEdited.dataset.introS = String(introS);
+    const tdIntro = rowBeingEdited.querySelector('.tdIntro');
+    if (tdIntro) tdIntro.textContent = fmtMMSS(introS);
+  }
+  if (Number.isFinite(outroS)){
+    rowBeingEdited.dataset.outroS = String(outroS);
+    const tdOutro = rowBeingEdited.querySelector('.tdOutro');
+    if (tdOutro) tdOutro.textContent = fmtMMSS(outroS);
+  }
+  closeEdit();
+}
+editSave?.addEventListener('click', applyEdit);
+
+// ---- Tabellenzeile (kompakt + Stift) ----
+// Spalten: CMS-ID | Externe | URL | Dauer | Outro mm:ss | Muster | Intro mm:ss | Match | Test(Intro·Outro·✏︎)
 function addResultRowCompact({cmsId, externalId, url, durationHHMMSS, outroStartS, patternName, introStartS, conf, score}){
   const tr = document.createElement('tr');
   tr.dataset.introS = Number.isFinite(introStartS) ? String(introStartS) : '';
   tr.dataset.outroS = Number.isFinite(outroStartS) ? String(outroStartS) : '';
 
-  const c = (txt)=>{ const td=document.createElement('td'); td.textContent=txt; return td; };
-  const linkCell = ()=>{ const td=document.createElement('td'); const a=document.createElement('a'); a.href=url||''; a.textContent=url||''; a.target='_blank'; a.rel='noopener'; td.appendChild(a); return td; };
-  const testCell = ()=>{
+  const cText = (txt, cls)=>{ const td=document.createElement('td'); td.textContent=txt; if (cls) td.className=cls; return td; };
+  const cLink = ()=>{ const td=document.createElement('td'); const a=document.createElement('a'); a.href=url||''; a.textContent=url||''; a.target='_blank'; a.rel='noopener'; td.appendChild(a); return td; };
+  const cTest = ()=>{
     const td=document.createElement('td');
-    const mkBtn=(label, secs, title)=>{
+
+    const mkLink=(label, title, which)=>{
       const b=document.createElement('button');
       b.className='linklike small';
       b.textContent=label;
       b.title=title||'';
-      if (!Number.isFinite(secs)) { b.disabled=true; }
       b.addEventListener('click',(e)=>{
+        const tr = b.closest('tr');
+        const secs = which==='intro' ? Number(tr.dataset.introS) : Number(tr.dataset.outroS);
+        const u = tr.querySelector('td:nth-child(3) a')?.href || '';
         const useExternal = e.metaKey || e.ctrlKey || e.shiftKey;
         if (!Number.isFinite(secs)) return;
-        if (useExternal && url) {
-          window.open(buildTimedUrl(url, secs), '_blank');
-        } else {
-          openPlayer(url, secs, `${label}-Vorschau`);
-        }
+        if (useExternal && u) window.open(buildTimedUrl(u, secs), '_blank');
+        else openPlayer(u, secs, (which==='intro'?'Intro':'Outro')+'-Vorschau');
       });
       return b;
     };
-    const introBtn = mkBtn('Intro', introStartS, 'Intro abspielen (Strg/Cmd für neuen Tab)');
-    const sep = document.createElement('span'); sep.textContent=' · ';
-    const outroBtn = mkBtn('Outro', outroStartS, 'Outro abspielen (Strg/Cmd für neuen Tab)');
-    td.appendChild(introBtn); td.appendChild(sep); td.appendChild(outroBtn);
+
+    const spanSep = (t)=>{ const s=document.createElement('span'); s.textContent=t; return s; };
+
+    const introBtn = mkLink('Intro', 'Intro abspielen (Strg/Cmd für neuen Tab)', 'intro');
+    const outroBtn = mkLink('Outro', 'Outro abspielen (Strg/Cmd für neuen Tab)', 'outro');
+
+    // Stift-Icon
+    const editBtn = document.createElement('button');
+    editBtn.className = 'iconbtn';
+    editBtn.title = 'Zeiten bearbeiten';
+    editBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm18.71-11.04c.39.39.39 1.02 0 1.41l-2.34 2.34-3.75-3.75 2.34-2.34a.996.996 0 1 1 1.41 1.41l-1.27 1.27 3.61 3.66z"/></svg>';
+    editBtn.addEventListener('click', ()=> openEdit(td.closest('tr')));
+
+    td.appendChild(introBtn);
+    td.appendChild(spanSep(' · '));
+    td.appendChild(outroBtn);
+    td.appendChild(spanSep(' · '));
+    td.appendChild(editBtn);
     return td;
   };
 
   const matchStr = (conf||'') && (score||'') ? `${conf} / ${score}` : (conf||score||'');
 
-  tr.appendChild(c(cmsId||''));
-  tr.appendChild(c(externalId||''));
-  tr.appendChild(linkCell());
-  tr.appendChild(c(durationHHMMSS||''));
-  tr.appendChild(c(Number.isFinite(outroStartS)? fmtMMSS(outroStartS):''));
-  tr.appendChild(c(patternName||''));
-  tr.appendChild(c(Number.isFinite(introStartS)? fmtMMSS(introStartS):''));
-  tr.appendChild(c(matchStr));
-  tr.appendChild(testCell());
+  tr.appendChild(cText(cmsId||''));
+  tr.appendChild(cText(externalId||''));
+  tr.appendChild(cLink());
+  tr.appendChild(cText(durationHHMMSS||''));
+  tr.appendChild(cText(Number.isFinite(outroStartS)? fmtMMSS(outroStartS):'', 'tdOutro'));
+  tr.appendChild(cText(patternName||''));
+  tr.appendChild(cText(Number.isFinite(introStartS)? fmtMMSS(introStartS):'', 'tdIntro'));
+  tr.appendChild(cText(matchStr));
+  tr.appendChild(cTest());
 
   resultsTable.appendChild(tr);
 }
@@ -501,14 +565,14 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
   } finally { setBusy(false); endRun(); }
 });
 
-// ---------- CSV exportieren (an neue Spalten angepasst) ----------
+// ---------- CSV exportieren (angepasst an schlanke Tabelle) ----------
 btnExportCsv.addEventListener('click', ()=>{
   const headers = ['cms_id','external_cms_id','video_url','duration_hhmmss','outro_start_mmss','matched_pattern','intro_start_mmss','match'];
   const rows=[headers];
   const trs=resultsTable.querySelectorAll('tr');
   for(const tr of trs){
     const tds=tr.querySelectorAll('td');
-    const row=[]; for(let i=0;i<8;i++){ // nur die ersten 8 Zellen (ohne "Test")
+    const row=[]; for(let i=0;i<8;i++){ // nur erste 8 Zellen exportieren (ohne "Test")
       const v=(tds[i]?.textContent||'').replace(/"/g,'""');
       row.push('"'+v+'"');
     }
@@ -521,7 +585,7 @@ btnExportCsv.addEventListener('click', ()=>{
   URL.revokeObjectURL(url);
 });
 
-// ---------- Update-XML exportieren (an neue Spalten angepasst) ----------
+// ---------- Update-XML exportieren (nutzt korrigierte Zeiten via dataset) ----------
 function toHHMMSSFixed(seconds){
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
@@ -560,14 +624,13 @@ btnExportXml.addEventListener('click', async ()=>{
       if (tds.length < 9) return;
 
       const cmsId       = tds[0].textContent.trim();
-      const externalId  = tds[1].textContent.trim() || cmsId; // Fallback
-      const url         = tds[2].textContent.trim();
+      const externalId  = tds[1].textContent.trim() || cmsId;
       const durationStr = tds[3].textContent.trim();          // hh:mm:ss
       const outroMMSS   = tds[4].textContent.trim();
       const patName     = tds[5].textContent.trim();
       const introMMSS   = tds[6].textContent.trim();
 
-      // Sekunden bevorzugt aus dataset (exakter), sonst aus mm:ss parsen
+      // Sekunden bevorzugt aus dataset (korrigiert), sonst aus mm:ss
       const introStartS = Number(tr.dataset.introS) || parseTime(introMMSS);
       const outroStartS = Number(tr.dataset.outroS) || parseTime(outroMMSS);
 

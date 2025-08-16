@@ -12,22 +12,19 @@
     .col { display: flex; flex-direction: column; gap: 8px; }
     button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; background: #f7f7f7; cursor: pointer; }
     button:disabled { opacity: .6; cursor: default; }
-    input[type="text"], select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+    input[type="text"], input[type="url"], select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
     #log { white-space: pre-wrap; font-family: Consolas, Menlo, monospace; border: 1px solid #ddd; background: #fafafa; padding: 10px; border-radius: 8px; min-height: 140px; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eee; font-size: 12px; margin-left: 8px; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
     .muted { color: #666; font-size: 12px; }
-    .ok { color: #046c4e; }
-    .warn { color: #7a5900; }
-    .err { color: #8b0000; }
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
-      textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
+    textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
   </style>
 </head>
 <body>
   <h1>Intro Pattern Matcher</h1>
-  <div class="muted">Create and store an intro pattern from a reference file, then detect the intro start in the first N minutes of new files.</div>
+  <div class="muted">Create and store an intro pattern from a reference file, detect the intro start in the first N minutes of new files, and compute outro start from duration.</div>
 
   <div class="card">
     <div class="row">
@@ -52,6 +49,7 @@
     <div class="row">
       <label>Intro start (mm:ss or seconds): <input id="introStart" type="text" placeholder="e.g. 01:23" size="10"></label>
       <label>Intro end (mm:ss or seconds): <input id="introEnd" type="text" placeholder="e.g. 01:53" size="10"></label>
+      <label>Outro duration (mm:ss or seconds): <input id="outroDuration" type="text" placeholder="e.g. 00:30" size="10"></label>
       <button id="btnMakePattern">Extract & Save Pattern</button>
     </div>
     <div class="muted">The marked segment will be decoded (mono, 16 kHz), MFCC features computed and stored locally (IndexedDB). No server.</div>
@@ -68,6 +66,12 @@
       <select id="patternSelect"></select>
       <button id="btnDeletePattern">Delete selected pattern</button>
     </div>
+
+    <div class="row">
+      <textarea id="metaCsv" placeholder="Optional metadata: one line per item
+cms_id,external_cms_id,video_url(optional),duration(optional hh:mm:ss)"></textarea>
+    </div>
+
     <div class="row">
       <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
       <button id="btnAnalyze">Analyze selected file(s)</button>
@@ -78,8 +82,24 @@
         <button id="btnAnalyzeUrls">Analyze URL(s)</button>
       </div>
     </div>
+
     <table id="resultsTable">
-      <thead><tr><th>video_id</th><th>matched_pattern</th><th>intro_start_mm:ss</th><th>intro_start_s</th><th>confidence</th><th>score</th></tr></thead>
+      <thead>
+        <tr>
+          <th>cms_id</th>
+          <th>external_cms_id</th>
+          <th>video_url</th>
+          <th>video_id</th>
+          <th>duration_hh:mm:ss</th>
+          <th>outro_start_mm:ss</th>
+          <th>outro_start_s</th>
+          <th>matched_pattern</th>
+          <th>intro_start_mm:ss</th>
+          <th>intro_start_s</th>
+          <th>confidence</th>
+          <th>score</th>
+        </tr>
+      </thead>
       <tbody></tbody>
     </table>
     <div class="row"><button id="btnExportCsv">Export CSV</button></div>
@@ -88,262 +108,10 @@
   <h2>Log</h2>
   <div id="log"></div>
 
-  <!-- Dependencies: ffmpeg UMD (from your repo), Meyda (MFCC), kv-lib (IndexedDB helper) -->
+  <!-- Vendor: UMD globals -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
   <script src="./vendor/meyda/meyda.min.js"></script>
-  <!-- Replaced external kv-lib with an inline minimal IndexedDB helper to avoid CDN/MIME issues -->
-  <script>
-  // build stamp: replace at deploy for cache-busting visibility
-  console.log('Intro Pattern Matcher build: local-no-cdn');
-  (function(){
-      function openDB(){
-        return new Promise(function(resolve,reject){
-          var req = indexedDB.open('intro-matcher-db', 1);
-          req.onupgradeneeded = function(){
-            var db = req.result;
-            if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
-          };
-          req.onsuccess = function(){ resolve(req.result); };
-          req.onerror = function(){ reject(req.error); };
-        });
-      }
-      function withStore(mode, fn){
-        return openDB().then(function(db){
-          return new Promise(function(resolve,reject){
-            var tx = db.transaction('kv', mode);
-            var store = tx.objectStore('kv');
-            var request;
-            try { request = fn(store); } catch(e){ reject(e); return; }
-            tx.oncomplete = function(){ resolve(request && request.result); };
-            tx.onerror = function(){ reject(tx.error || (request && request.error)); };
-          });
-        });
-      }
-      window.SimpleKV = {
-        get: function(key){ return withStore('readonly', function(s){ return s.get(key); }); },
-        set: function(key, val){ return withStore('readwrite', function(s){ return s.put(val, key); }); },
-        del: function(key){ return withStore('readwrite', function(s){ return s.delete(key); }); },
-        clear: function(){ return withStore('readwrite', function(s){ return s.clear(); }); },
-        keys: function(){
-          return openDB().then(function(db){
-            return new Promise(function(resolve,reject){
-              var tx = db.transaction('kv','readonly');
-              var store = tx.objectStore('kv');
-              var out = [];
-              var req = store.openKeyCursor();
-              req.onsuccess = function(ev){
-                var cur = ev.target.result;
-                if(cur){ out.push(cur.key); cur.continue(); }
-                else resolve(out);
-              };
-              req.onerror = function(){ reject(req.error); };
-            });
-          });
-        }
-      };
-    })();
-  </script>
-
-  <script>
-  (function(){
-    var logEl = document.getElementById('log');
-    function log(s){ var t=document.createTextNode(s); logEl.appendChild(t); logEl.appendChild(document.createElement('br')); logEl.scrollTop = logEl.scrollHeight; }
-    function fmtMMSS(seconds){ seconds = Math.max(0, seconds); var s = Math.round(seconds); var m = Math.floor(s/60); var r = s%60; return String(m).padStart(2,'0')+":"+String(r).padStart(2,'0'); }
-    function parseTime(str){ if(!str) return NaN; var x=str.trim(); if(/^[0-9]+(\.[0-9]+)?$/.test(x)) return parseFloat(x); if(/^\d{1,2}:\d{2}$/.test(x)){ var parts=x.split(":"); return parseInt(parts[0],10)*60+parseInt(parts[1],10); } return NaN; }
-
-    var btnLoad = document.getElementById('btnLoad');
-    var statusEl = document.getElementById('status');
-    var coreInfoEl = document.getElementById('coreInfo');
-    var headWindowEl = document.getElementById('headWindow');
-    var frameSizeEl = document.getElementById('frameSize');
-    var hopSizeEl = document.getElementById('hopSize');
-    var mfccCountEl = document.getElementById('mfccCount');
-
-    var refFileEl = document.getElementById('refFile');
-    var patternNameEl = document.getElementById('patternName');
-    var introStartEl = document.getElementById('introStart');
-    var introEndEl = document.getElementById('introEnd');
-    var btnMakePattern = document.getElementById('btnMakePattern');
-
-    var patternSelect = document.getElementById('patternSelect');
-    var btnDeletePattern = document.getElementById('btnDeletePattern');
-    var targetFileEl = document.getElementById('targetFile');
-    var btnAnalyze = document.getElementById('btnAnalyze');
-    var resultsTable = document.getElementById('resultsTable').querySelector('tbody');
-    var btnExportCsv = document.getElementById('btnExportCsv');
-
-    var ffmpeg = null; // FFmpeg instance
-    var store = window.SimpleKV; // Inline IndexedDB helper (no CDN)
-
-    window.addEventListener('error', function(e){ log('window error: ' + e.message); });
-    window.addEventListener('unhandledrejection', function(e){ var r = e && e.reason ? (e.reason.message || e.reason) : 'unknown'; log('unhandled rejection: ' + r); });
-
-    function toBlobURL(url, mime){ return fetch(url).then(function(r){ if(!r.ok) throw new Error('fetch '+r.status+' '+url); return r.arrayBuffer(); }).then(function(buf){ return URL.createObjectURL(new Blob([buf], { type: mime })); }); }
-
-    function ensureFFmpeg(){
-      if(ffmpeg) return Promise.resolve();
-      if(!window.FFmpegWASM){ log('FFmpegWASM global missing (check vendor/ffmpeg/umd/ffmpeg.js).'); return Promise.reject(new Error('FFmpegWASM missing')); }
-      var FFmpegClass = window.FFmpegWASM.FFmpeg; ffmpeg = new FFmpegClass();
-      ffmpeg.on('log', function(ev){ if(ev && ev.message) log('[ffmpeg] ' + ev.message); });
-      statusEl.textContent = 'loading';
-      var bases = [ new URL('./vendor/ffmpeg/core/umd/', document.baseURI).href, 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/', 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/' ];
-      function tryBase(i){ if(i>=bases.length) return Promise.reject(new Error('no core base worked')); var base=bases[i]; log('trying core base: '+base); return Promise.all([ toBlobURL(base+'ffmpeg-core.js','text/javascript'), toBlobURL(base+'ffmpeg-core.wasm','application/wasm') ]).then(function(arr){ return { coreURL:arr[0], wasmURL:arr[1] }; }).catch(function(e){ log('base failed: '+e); return tryBase(i+1); }); }
-      return tryBase(0).then(function(u){ coreInfoEl.textContent = 'core=umd js+wasm'; log('ffmpeg.load with resolved blob URLs'); return ffmpeg.load(u); }).then(function(){ statusEl.textContent='loaded'; });
-    }
-
-    function uuid(){ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){ var r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16); }); }
-
-    // WAV PCM16 mono reader (expects 16kHz mono s16le)
-    function parseWavPCM16(buf){
-      var dv = new DataView(buf); function str(o,l){ var s=''; for(var i=0;i<l;i++) s+=String.fromCharCode(dv.getUint8(o+i)); return s; }
-      if(str(0,4)!=='RIFF') throw new Error('Not RIFF'); if(str(8,4)!=='WAVE') throw new Error('Not WAVE');
-      var off=12, fmt=null, dataOff=0, dataLen=0; while(off<dv.byteLength){ var id=str(off,4); var size=dv.getUint32(off+4,true); if(id==='fmt '){ fmt={ audioFormat: dv.getUint16(off+8,true), numChannels: dv.getUint16(off+10,true), sampleRate: dv.getUint32(off+12,true), bitsPerSample: dv.getUint16(off+22,true) }; } else if(id==='data'){ dataOff=off+8; dataLen=size; } off+=8+size; }
-      if(!fmt||!dataOff) throw new Error('Invalid WAV'); if(fmt.audioFormat!==1||fmt.numChannels!==1||fmt.bitsPerSample!==16) throw new Error('Expect PCM16 mono');
-      var samples = new Int16Array(buf, dataOff, dataLen/2); var out = new Float32Array(samples.length); for(var i=0;i<samples.length;i++){ out[i]=samples[i]/32768; } return { sampleRate: fmt.sampleRate, signal: out };
-    }
-
-    // MFCC feature extraction over sliding frames using Meyda
-    function computeMFCC(signal, sampleRate, frameSize, hopSize, mfccCount){
-      var frames = Math.floor((signal.length - frameSize) / hopSize) + 1; if(frames<1) return { frames:0, dims: mfccCount, data: new Float32Array(0) };
-      var data = new Float32Array(frames * mfccCount);
-      for(var i=0;i<frames;i++){
-        var start = i*hopSize; var frame = signal.subarray(start, start+frameSize);
-        var feats = window.Meyda.extract('mfcc', frame, { sampleRate: sampleRate, bufferSize: frameSize, melBands: 40, numberOfMFCCCoefficients: mfccCount });
-        if(!feats) { for(var k=0;k<mfccCount;k++) data[i*mfccCount+k]=0; continue; }
-        for(var k=0;k<mfccCount;k++){ data[i*mfccCount+k] = feats[k]; }
-      }
-      // z-score per dimension
-      for(var d=0; d<mfccCount; d++){
-        var sum=0; for(var i2=0;i2<frames;i2++){ sum += data[i2*mfccCount+d]; }
-        var mean=sum/frames; var varsum=0; for(var i3=0;i3<frames;i3++){ var v=data[i3*mfccCount+d]-mean; varsum+=v*v; }
-        var std=Math.sqrt(varsum/Math.max(1,frames-1)); if(std<1e-6) std=1; for(var i4=0;i4<frames;i4++){ data[i4*mfccCount+d] = (data[i4*mfccCount+d]-mean)/std; }
-      }
-      return { frames: frames, dims: mfccCount, data: data };
-    }
-
-    // Sliding window distance (no warping): avg squared error across all dims/frames
-    function slidingDistance(headFeat, patFeat){
-      var D = patFeat.dims; var Lp = patFeat.frames; var Lt = headFeat.frames; if(Lt<Lp) return { bestIdx:-1, best:Infinity, second:Infinity };
-      var best=Infinity, bestIdx=-1, second=Infinity;
-      for(var s=0; s<=Lt-Lp; s++){
-        var sum=0; var idxH=s*D; var idxP=0;
-        for(var j=0;j<Lp;j++){
-          for(var d=0; d<D; d++){
-            var diff = headFeat.data[idxH + d] - patFeat.data[idxP + d];
-            sum += diff*diff;
-          }
-          idxH += D; idxP += D;
-        }
-        var score = sum/(Lp*D);
-        if(score<best){ second=best; best=score; bestIdx=s; } else if(score<second){ second=score; }
-      }
-      return { bestIdx: bestIdx, best: best, second: second };
-    }
-
-    // Pattern storage helpers
-    function refreshPatternList(){ return store.keys().then(function(keys){ return Promise.all(keys.map(function(k){ return store.get(k).then(function(v){ return { key:k, val:v }; }); })); }).then(function(items){ patternSelect.innerHTML=''; items.forEach(function(it){ var opt=document.createElement('option'); opt.value=it.key; opt.textContent=it.val.name+' ('+it.key.substring(0,8)+')'; patternSelect.appendChild(opt); }); if(items.length===0){ var opt=document.createElement('option'); opt.textContent='(no patterns yet)'; patternSelect.appendChild(opt); } }); }
-
-    function savePattern(obj){ var key = obj.pattern_id; return store.set(key, obj).then(function(){ log('pattern saved: '+obj.name+' ['+key+']'); return refreshPatternList(); }); }
-
-    function deleteSelected(){ var key = patternSelect.value; if(!key || key.startsWith('(no')) return; return store.del(key).then(function(){ log('pattern deleted: '+key); return refreshPatternList(); }); }
-
-    // FFmpeg helpers
-    function decodeSegmentToWav(file, ss, t){
-      var inputName = 'in.bin'; var outName = 'out.wav';
-      return file.arrayBuffer().then(function(buf){ return ffmpeg.writeFile(inputName, new Uint8Array(buf)); })
-      .then(function(){ var args = ['-ss', String(ss), '-t', String(t), '-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-sample_fmt', 's16', outName]; log('ff: '+args.join(' ')); return ffmpeg.exec(args); })
-      .then(function(){ return ffmpeg.readFile(outName); })
-      .then(function(data){ try{ ffmpeg.deleteFile(inputName); }catch(_){ } try{ ffmpeg.deleteFile(outName); }catch(_){ } return data.buffer; });
-    }
-
-    function decodeHeadToWav(file, headWindow){
-      var inputName = 'in2.bin'; var outName = 'head.wav';
-      return file.arrayBuffer().then(function(buf){ return ffmpeg.writeFile(inputName, new Uint8Array(buf)); })
-      .then(function(){ var args = ['-t', String(headWindow), '-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-sample_fmt', 's16', outName]; log('ff: '+args.join(' ')); return ffmpeg.exec(args); })
-      .then(function(){ return ffmpeg.readFile(outName); })
-      .then(function(data){ try{ ffmpeg.deleteFile(inputName); }catch(_){ } try{ ffmpeg.deleteFile(outName); }catch(_){ } return data.buffer; });
-    }
-
-    // Fetch helpers for external URLs (CORS-aware)
-    function basenameFromUrl(u){ try{ var p=new URL(u); var s=p.pathname.split('/'); var name=s[s.length-1]||'remote.bin'; return decodeURIComponent(name); }catch(_){ return 'remote.bin'; } }
-    function fetchFullUrl(url, maxMB){ maxMB = maxMB || 300; log('fetching full URL (cap '+maxMB+' MB): '+url); return fetch(url, { mode: 'cors' }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status+' '+url); var len = parseInt(r.headers.get('Content-Length')||'0',10); if(len && len > maxMB*1024*1024) throw new Error('file too large ('+len+' bytes) for cap '+maxMB+' MB'); return r.arrayBuffer(); }).then(function(buf){ return { name: basenameFromUrl(url), buffer: buf }; }).catch(function(e){ if(String(e).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).'); throw e; }); }
-    function fetchHeadUrl(url, maxBytes){ maxBytes = maxBytes || (64*1024*1024); log('range-fetch head ('+Math.round(maxBytes/1048576)+' MB): '+url); return fetch(url, { headers: { 'Range': 'bytes=0-'+(maxBytes-1) }, mode: 'cors' }).then(function(r){ if(r.status===206){ return r.arrayBuffer().then(function(b){ return { name: basenameFromUrl(url), buffer: b, ranged:true }; }); } if(r.status===200){ var len = parseInt(r.headers.get('Content-Length')||'0',10); return r.arrayBuffer().then(function(b){ if(len && len>maxBytes && b.byteLength>maxBytes) throw new Error('server ignored Range and file exceeds cap ('+len+' bytes)'); return { name: basenameFromUrl(url), buffer: b, ranged:false }; }); } throw new Error('HTTP '+r.status+' for '+url); }).catch(function(e){ if(String(e).includes('TypeError')) log('Hint: CORS likely missing (Access-Control-Allow-Origin).'); throw e; }); }
-    function bufferToFileLike(buf, name){ return { name: name||'remote.bin', arrayBuffer: function(){ return Promise.resolve(buf); } }; }
-
-    // UI wiring
-    btnLoad.addEventListener('click', function(){ ensureFFmpeg().catch(function(err){ log('ffmpeg load failed: '+err); }); });
-
-    btnMakePattern.addEventListener('click', function(){
-      ensureFFmpeg().then(function(){
-        var f = refFileEl.files && refFileEl.files[0]; if(!f){ log('pick a reference file'); return; }
-        var name = patternNameEl.value.trim(); if(!name){ log('enter a pattern name'); return; }
-        var s = parseTime(introStartEl.value); var e = parseTime(introEndEl.value); if(!isFinite(s)||!isFinite(e)||e<=s){ log('invalid start/end'); return; }
-        var dur = e - s; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
-        log('extracting segment '+fmtMMSS(s)+'–'+fmtMMSS(e)+' ('+dur.toFixed(2)+'s) …');
-        return decodeSegmentToWav(f, s, dur).then(function(buf){ var wav = parseWavPCM16(buf); if(wav.sampleRate!==16000) log('note: sampleRate='+wav.sampleRate); var feat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); log('pattern frames='+feat.frames+', dims='+feat.dims); var pat={ pattern_id: uuid(), name: name, created_at: new Date().toISOString(), algo_version: 'intro-match/1.0.0', reference_timing: { intro_start_s: s, intro_end_s: e, intro_duration_s: dur }, feature_config: { feature_type: 'mfcc'+mfccC, sr_hz: wav.sampleRate, win: frameSize, hop: hop, mel_bins: 40, normalization: 'zscore' }, feature_payload: { format:'f32', frame_count: feat.frames, dims: feat.dims, data_b64: btoa(String.fromCharCode.apply(null, new Uint8Array(new Float32Array(feat.data).buffer))) } }; return savePattern(pat); });
-      }).catch(function(err){ log('make pattern failed: '+err); });
-    });
-
-    btnDeletePattern.addEventListener('click', function(){ deleteSelected().catch(function(err){ log('delete failed: '+err); }); });
-
-    btnAnalyze.addEventListener('click', function(){
-      ensureFFmpeg().then(function(){
-        var files = targetFileEl.files; if(!files || files.length===0){ log('pick at least one target file'); return; }
-        var key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
-        var headWindow = parseInt(headWindowEl.value,10)||180; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
-        store.get(key).then(function(pat){ if(!pat){ log('pattern not found'); return; }
-          // reconstruct Float32Array from base64
-          var raw = atob(pat.feature_payload.data_b64); var ab = new ArrayBuffer(raw.length); var u8 = new Uint8Array(ab); for(var i=0;i<raw.length;i++) u8[i]=raw.charCodeAt(i); var patData = new Float32Array(ab);
-          var patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
-          function processOne(file){
-            log('decoding head window for '+file.name+' …');
-            return decodeHeadToWav(file, headWindow).then(function(buf){ var wav = parseWavPCM16(buf); if(wav.sampleRate!==16000) log('note: sampleRate='+wav.sampleRate); var headFeat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); log('features '+file.name+': frames='+headFeat.frames); var res = slidingDistance(headFeat, patFeat); if(res.bestIdx<0){ log('no window fits'); return; } var start_s = (res.bestIdx * hop) / wav.sampleRate; var mmss = fmtMMSS(start_s); var conf = (res.second===Infinity)? 1.0 : Math.max(0, Math.min(1, (res.second - res.best) / (res.second || 1))); addResultRow(file.name, pat.name, mmss, start_s.toFixed(2), conf.toFixed(2), res.best.toFixed(4)); });
-          }
-          // sequential to avoid heavy CPU spikes
-          var p = Promise.resolve();
-          for(var i=0;i<files.length;i++){ (function(f){ p = p.then(function(){ return processOne(f); }); })(files[i]); }
-          return p;
-        }).catch(function(err){ log('analyze failed: '+err); });
-      });
-    });
-
-    function addResultRow(videoId, patName, mmss, secs, conf, score){ var tr=document.createElement('tr'); function td(t){ var c=document.createElement('td'); c.textContent=t; return c; } tr.appendChild(td(videoId)); tr.appendChild(td(patName)); tr.appendChild(td(mmss)); tr.appendChild(td(secs)); tr.appendChild(td(conf)); tr.appendChild(td(score)); resultsTable.appendChild(tr); }
-
-    btnExportCsv.addEventListener('click', function(){ var rows=[['video_id','matched_pattern','intro_start_mmss','intro_start_s','confidence','score']]; var trs=resultsTable.querySelectorAll('tr'); for(var i=0;i<trs.length;i++){ var tds=trs[i].querySelectorAll('td'); var row=[]; for(var j=0;j<tds.length;j++){ var v=tds[j].textContent.replace(/"/g,'""'); row.push('"'+v+'"'); } rows.push(row); } var csv=rows.map(function(r){return r.join(',');}).join('\n'); var blob=new Blob([csv],{type:'text/csv'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='intro_results.csv'; a.click(); URL.revokeObjectURL(url); });
-
-    // URL buttons
-    document.getElementById('btnMakePatternFromUrl').addEventListener('click', function(){
-      ensureFFmpeg().then(function(){
-        var url = (document.getElementById('refUrl').value||'').trim(); if(!url){ log('enter a reference URL'); return; }
-        var name = patternNameEl.value.trim() || basenameFromUrl(url);
-        var s = parseTime(introStartEl.value); var e = parseTime(introEndEl.value); if(!isFinite(s)||!isFinite(e)||e<=s){ log('invalid start/end'); return; }
-        var dur = e - s; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
-        return fetchFullUrl(url, 300).then(function(obj){ var fileLike = bufferToFileLike(obj.buffer, obj.name); log('downloaded '+obj.name+' ('+(obj.buffer.byteLength/1048576).toFixed(1)+' MB)'); return decodeSegmentToWav(fileLike, s, dur); })
-        .then(function(buf){ var wav = parseWavPCM16(buf); var feat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); var pat={ pattern_id: uuid(), name: name, created_at: new Date().toISOString(), algo_version: 'intro-match/1.0.0', reference_timing: { intro_start_s: s, intro_end_s: e, intro_duration_s: dur }, feature_config: { feature_type: 'mfcc'+mfccC, sr_hz: wav.sampleRate, win: frameSize, hop: hop, mel_bins: 40, normalization: 'zscore' }, feature_payload: { format:'f32', frame_count: feat.frames, dims: feat.dims, data_b64: btoa(String.fromCharCode.apply(null, new Uint8Array(new Float32Array(feat.data).buffer))) } }; return savePattern(pat); })
-        .catch(function(err){ log('make pattern (URL) failed: '+err); });
-      });
-    });
-
-    document.getElementById('btnAnalyzeUrls').addEventListener('click', function(){
-      ensureFFmpeg().then(function(){
-        var lines = (document.getElementById('targetUrls').value||'').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
-        if(lines.length===0){ log('enter at least one URL'); return; }
-        var key = patternSelect.value; if(!key || key.startsWith('(no')){ log('select a pattern'); return; }
-        var headWindow = parseInt(headWindowEl.value,10)||180; var frameSize = parseInt(frameSizeEl.value,10)||1024; var hop = parseInt(hopSizeEl.value,10)||512; var mfccC = parseInt(mfccCountEl.value,10)||13;
-        store.get(key).then(function(pat){ if(!pat){ log('pattern not found'); return; }
-          var raw = atob(pat.feature_payload.data_b64); var ab = new ArrayBuffer(raw.length); var u8 = new Uint8Array(ab); for(var i=0;i<raw.length;i++) u8[i]=raw.charCodeAt(i); var patData = new Float32Array(ab);
-          var patFeat = { frames: pat.feature_payload.frame_count, dims: pat.feature_payload.dims, data: patData };
-          function processUrl(u){
-            return fetchHeadUrl(u, 64*1024*1024).then(function(obj){ var f = bufferToFileLike(obj.buffer, basenameFromUrl(u)); log('downloaded head for '+u+' ('+(obj.buffer.byteLength/1048576).toFixed(1)+' MB)'); return decodeHeadToWav(f, headWindow); }).then(function(buf){ var wav = parseWavPCM16(buf); var headFeat = computeMFCC(wav.signal, wav.sampleRate, frameSize, hop, mfccC); var res = slidingDistance(headFeat, patFeat); if(res.bestIdx<0){ log('no window fits for '+u); return; } var start_s = (res.bestIdx * hop) / wav.sampleRate; var mmss = fmtMMSS(start_s); var conf = (res.second===Infinity)? 1.0 : Math.max(0, Math.min(1, (res.second - res.best) / (res.second || 1))); addResultRow(basenameFromUrl(u), pat.name, mmss, start_s.toFixed(2), conf.toFixed(2), res.best.toFixed(4)); }).catch(function(err){ log('analyze URL failed ('+u+'): '+err); });
-          }
-          var p = Promise.resolve(); lines.forEach(function(u){ p = p.then(function(){ return processUrl(u); }); }); return p;
-        }).catch(function(err){ log('analyze URLs failed: '+err); });
-      });
-    });
-
-    // init
-    refreshPatternList();
-  })();
-  </script>
+  <!-- App: ES modules -->
+  <script type="module" src="./js/app.js"></script>
 </body>
 </html>

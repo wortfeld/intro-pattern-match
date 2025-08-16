@@ -33,18 +33,26 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     footer { margin-top: 32px; }
+    button.linklike {
+    background: none; border: none; padding: 0; margin-left: 8px;
+    color: #195ef7; text-decoration: underline; cursor: pointer; font: inherit;
+    }
+    button.linklike:disabled { opacity: .6; cursor: default; text-decoration: none; }  
   </style>
 </head>
 <body>
   <h1>Intro Pattern Matcher</h1>
 
   <!-- Busy overlay -->
-  <div id="overlay" class="overlay hidden" aria-hidden="true">
-    <div class="overlay-content">
-      <div class="spinner" aria-hidden="true"></div>
-      <div id="busyLabel">Bitte warten …</div>
+<div id="overlay" class="overlay hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-live="polite">
+  <div class="overlay-content">
+    <div class="spinner" aria-hidden="true"></div>
+    <div>
+      <span id="busyLabel">Bitte warten …</span>
+      <button id="overlayAbort" class="linklike">Abbrechen</button>
     </div>
   </div>
+</div>
 
   <!-- Karte 1: Muster anlegen -->
   <div class="card">
@@ -124,7 +132,7 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
           <th>Intro-Start (mm:ss)</th>
           <th>Intro-Start (s)</th>
           <th>Konfidenz</th>
-          <th>Score</th>
+          <th>Score</th> 
         </tr>
       </thead>
       <tbody></tbody>

@@ -84,7 +84,7 @@
     /* Details toggles */
     details > summary { cursor:pointer; user-select:none; font-weight:600; }
     details.muted > summary { color: var(--muted); font-weight:500; }
-    details .row { margin-top:8px; }
+    details { margin-top:8px; }
 
     /* Table */
     table { border-collapse: collapse; width:100%; margin-top: 8px; margin-bottom: 8px; }
@@ -260,12 +260,12 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
           </div>
         </details>
 
-        <details class="muted" style="margin-top:8px;">
+        <details class="muted" >
           <summary>Logdatei</summary>
           <div id="log" style="margin-top:8px;"></div>
         </details>
           
-        <details class="muted" style="margin-top:8px;">
+        <details class="muted" >
   <summary>Lizenzhinweise</summary>
   <div style="margin-top:8px; font-size:12px; line-height:1.4">
     Diese Anwendung verwendet:

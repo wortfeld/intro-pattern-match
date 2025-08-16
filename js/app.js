@@ -12,7 +12,6 @@ import {
 } from './media.js';
 import { parseWavPCM16, computeMFCC } from './features.js';
 import { slidingDistance } from './matcher.js';
-import { logger, addResultRowRich } from './ui.js';
 import {
   parseTime,
   fmtMMSS,
@@ -22,9 +21,11 @@ import {
   parseBatch
 } from './meta.js';
 
+// ---- Logger ----
 const logEl = document.getElementById('log');
-const log = logger(logEl);
+const log = (el => (msg)=>{ if(!el) return; const d=document.createElement('div'); d.textContent=String(msg); el.appendChild(d); el.scrollTop=el.scrollHeight; })(logEl);
 
+// ---- Engine/UI refs ----
 const statusEl = document.getElementById('status');
 const coreInfoEl = document.getElementById('coreInfo');
 const headWindowEl = document.getElementById('headWindow');
@@ -58,8 +59,12 @@ const overlay = document.getElementById('overlay');
 const busyLabel = document.getElementById('busyLabel');
 const overlayAbort = document.getElementById('overlayAbort');
 
-window.addEventListener('error', e=>log('window error: ' + e.message));
-window.addEventListener('unhandledrejection', e=>log('unhandled rejection: ' + (e?.reason?.message || e?.reason || 'unknown')));
+// ---- Player overlay refs (neu) ----
+const playerOverlay = document.getElementById('playerOverlay');
+const player = document.getElementById('player');
+const playerClose = document.getElementById('playerClose');
+const playerMeta = document.getElementById('playerMeta');
+const playerTitle = document.getElementById('playerTitle');
 
 // ---------- Busy UI ----------
 let busyCount = 0;
@@ -73,13 +78,11 @@ function setBusy(on, label='Bitte warten …', cancellable=false){
   overlay.setAttribute('aria-hidden', String(!active));
   busyLabel.textContent = label;
 
-  // Overlay-Abbrechen anzeigen/ausblenden
   if (overlayAbort) {
     overlayAbort.style.display = cancellable ? 'inline' : 'none';
     overlayAbort.disabled = !cancellable;
   }
-
-  // restliche Controls sperren (Overlay-Abbrechen & alter Abbrechen-Button nicht sperren)
+  // Controls sperren (Abbrechen-Ausnahmen)
   const controls = document.querySelectorAll('button, input, textarea, select');
   controls.forEach(el => {
     if (el === overlayAbort || el === btnAbort) return;
@@ -125,9 +128,10 @@ if (overlayAbort) {
   });
 }
 document.addEventListener('keydown', (e)=>{
-  if (e.key === 'Escape' && currentRun) {
-    currentRun.abortAll();
-    log('abgebrochen.');
+  if (e.key === 'Escape') {
+    if (currentRun) { currentRun.abortAll(); log('abgebrochen.'); }
+    // Player schließen auf ESC
+    if (!playerOverlay.classList.contains('hidden')) closePlayer();
   }
 });
 
@@ -173,9 +177,97 @@ function refreshPatternList(){
     });
 }
 
-function addResultRow(cells){ addResultRowRich(resultsTable, cells); }
+// ---- Player helpers (neu) ----
+function openPlayer(url, seconds, label='Vorschau'){
+  if (!url) return;
+  try { player.pause(); } catch {}
+  player.src = url;
+  player.currentTime = 0;
+  playerTitle.textContent = label;
+  playerMeta.textContent = `Start bei ${fmtMMSS(seconds||0)} • Quelle: ${url}`;
+  playerOverlay.classList.remove('hidden');
+  playerOverlay.setAttribute('aria-hidden','false');
 
-// ---------- Muster erstellen (URL, Standard) ----------
+  const seekTo = Math.max(0, Math.floor(Number(seconds)||0));
+  // Nach Metadata laden auf Zeit springen
+  const onMeta = ()=>{
+    player.currentTime = seekTo;
+    player.play().catch(()=>{ /* Autoplay blockiert -> egal */ });
+    player.removeEventListener('loadedmetadata', onMeta);
+  };
+  player.addEventListener('loadedmetadata', onMeta);
+  // Falls metadata sofort da sind
+  if (player.readyState >= 1) onMeta();
+}
+function closePlayer(){
+  try { player.pause(); } catch {}
+  player.removeAttribute('src'); try { player.load(); } catch {}
+  playerOverlay.classList.add('hidden');
+  playerOverlay.setAttribute('aria-hidden','true');
+}
+playerClose?.addEventListener('click', closePlayer);
+playerOverlay?.addEventListener('click', (e)=>{ if (e.target === playerOverlay) closePlayer(); });
+
+// Öffne externen Testlink mit #t=SECONDS (nur wenn Hoster das versteht)
+function buildTimedUrl(rawUrl, seconds){
+  try {
+    const u = new URL(rawUrl);
+    u.hash = 't=' + Math.max(0, Math.floor(Number(seconds)||0));
+    return u.toString();
+  } catch { return rawUrl; }
+}
+
+// ---- Tabellenzeile (neu, kompakt) ----
+// Spalten: CMS-ID | Externe | URL | Dauer | Outro mm:ss | Muster | Intro mm:ss | Match | Test
+function addResultRowCompact({cmsId, externalId, url, durationHHMMSS, outroStartS, patternName, introStartS, conf, score}){
+  const tr = document.createElement('tr');
+  tr.dataset.introS = Number.isFinite(introStartS) ? String(introStartS) : '';
+  tr.dataset.outroS = Number.isFinite(outroStartS) ? String(outroStartS) : '';
+
+  const c = (txt)=>{ const td=document.createElement('td'); td.textContent=txt; return td; };
+  const linkCell = ()=>{ const td=document.createElement('td'); const a=document.createElement('a'); a.href=url||''; a.textContent=url||''; a.target='_blank'; a.rel='noopener'; td.appendChild(a); return td; };
+  const testCell = ()=>{
+    const td=document.createElement('td');
+    const mkBtn=(label, secs, title)=>{
+      const b=document.createElement('button');
+      b.className='linklike small';
+      b.textContent=label;
+      b.title=title||'';
+      if (!Number.isFinite(secs)) { b.disabled=true; }
+      b.addEventListener('click',(e)=>{
+        const useExternal = e.metaKey || e.ctrlKey || e.shiftKey;
+        if (!Number.isFinite(secs)) return;
+        if (useExternal && url) {
+          window.open(buildTimedUrl(url, secs), '_blank');
+        } else {
+          openPlayer(url, secs, `${label}-Vorschau`);
+        }
+      });
+      return b;
+    };
+    const introBtn = mkBtn('Intro', introStartS, 'Intro abspielen (Strg/Cmd für neuen Tab)');
+    const sep = document.createElement('span'); sep.textContent=' · ';
+    const outroBtn = mkBtn('Outro', outroStartS, 'Outro abspielen (Strg/Cmd für neuen Tab)');
+    td.appendChild(introBtn); td.appendChild(sep); td.appendChild(outroBtn);
+    return td;
+  };
+
+  const matchStr = (conf||'') && (score||'') ? `${conf} / ${score}` : (conf||score||'');
+
+  tr.appendChild(c(cmsId||''));
+  tr.appendChild(c(externalId||''));
+  tr.appendChild(linkCell());
+  tr.appendChild(c(durationHHMMSS||''));
+  tr.appendChild(c(Number.isFinite(outroStartS)? fmtMMSS(outroStartS):''));
+  tr.appendChild(c(patternName||''));
+  tr.appendChild(c(Number.isFinite(introStartS)? fmtMMSS(introStartS):''));
+  tr.appendChild(c(matchStr));
+  tr.appendChild(testCell());
+
+  resultsTable.appendChild(tr);
+}
+
+// ---------- Muster erstellen (URL) ----------
 btnMakePatternFromUrl.addEventListener('click', async ()=>{
   setBusy(true, 'Muster wird erstellt …', false);
   try{
@@ -222,7 +314,7 @@ btnMakePatternFromUrl.addEventListener('click', async ()=>{
   } finally { setBusy(false); }
 });
 
-// ---------- Muster erstellen (Datei, Alternative) ----------
+// ---------- Muster erstellen (Datei) ----------
 btnMakePattern.addEventListener('click', async ()=>{
   setBusy(true, 'Muster wird erstellt …', false);
   try{
@@ -277,7 +369,7 @@ btnDeletePattern.addEventListener('click', async ()=>{
   finally { setBusy(false); }
 });
 
-// ---------- Dateien prüfen (Alternative) ----------
+// ---------- Dateien prüfen ----------
 btnAnalyze.addEventListener('click', async ()=>{
   setBusy(true, 'Dateien werden analysiert …', true);
   try{
@@ -325,17 +417,16 @@ btnAnalyze.addEventListener('click', async ()=>{
       const outroStartS = (Number.isFinite(duration_s) && Number.isFinite(outDur)) ? Math.max(0, duration_s - outDur) : NaN;
 
       const meta = metaMap[file.name] || metaMap[file.name.replace(/\.[^/.]+$/, '')] || {};
-      addResultRow([
-        meta.cms_id || '', meta.external_cms_id || '', meta.url || '',
-        file.name,
-        Number.isFinite(duration_s) ? fmtHHMMSS(Math.round(duration_s)) : '',
-        Number.isFinite(outroStartS) ? fmtMMSS(outroStartS) : '',
-        Number.isFinite(outroStartS) ? outroStartS.toFixed(2) : '',
-        pat.name,
-        Number.isFinite(introStartS) ? fmtMMSS(introStartS) : '',
-        Number.isFinite(introStartS) ? introStartS.toFixed(2) : '',
+      addResultRowCompact({
+        cmsId: meta.cms_id || '',
+        externalId: meta.external_cms_id || '',
+        url: meta.url || '',
+        durationHHMMSS: Number.isFinite(duration_s) ? fmtHHMMSS(Math.round(duration_s)) : '',
+        outroStartS,
+        patternName: pat.name,
+        introStartS,
         conf, score
-      ]);
+      });
     }
   }catch(err){ log('Analyse fehlgeschlagen: '+err); }
   finally { setBusy(false); endRun(); }
@@ -393,17 +484,16 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
       const outDur = pat.reference_timing && pat.reference_timing.outro_duration_s;
       const outroStartS = (Number.isFinite(duration_s) && Number.isFinite(outDur)) ? Math.max(0, duration_s - outDur) : NaN;
 
-      addResultRow([
-        meta.cms_id || '', meta.external_cms_id || '', meta.url || u,
-        base,
-        Number.isFinite(duration_s) ? fmtHHMMSS(Math.round(duration_s)) : '',
-        Number.isFinite(outroStartS) ? fmtMMSS(outroStartS) : '',
-        Number.isFinite(outroStartS) ? outroStartS.toFixed(2) : '',
-        pat.name,
-        Number.isFinite(introStartS) ? fmtMMSS(introStartS) : '',
-        Number.isFinite(introStartS) ? introStartS.toFixed(2) : '',
+      addResultRowCompact({
+        cmsId: meta.cms_id || '',
+        externalId: meta.external_cms_id || '',
+        url: meta.url || u,
+        durationHHMMSS: Number.isFinite(duration_s) ? fmtHHMMSS(Math.round(duration_s)) : '',
+        outroStartS,
+        patternName: pat.name,
+        introStartS,
         conf, score
-      ]);
+      });
     }
   }catch(err){
     if(String(err).includes('TypeError')) log('Hinweis: CORS der Quelle fehlt (Access-Control-Allow-Origin).');
@@ -411,14 +501,17 @@ btnAnalyzeBatch.addEventListener('click', async ()=>{
   } finally { setBusy(false); endRun(); }
 });
 
-// ---------- CSV exportieren ----------
+// ---------- CSV exportieren (an neue Spalten angepasst) ----------
 btnExportCsv.addEventListener('click', ()=>{
-  const headers = ['cms_id','external_cms_id','video_url','video_id','duration_hhmmss','outro_start_mmss','outro_start_s','matched_pattern','intro_start_mmss','intro_start_s','confidence','score'];
+  const headers = ['cms_id','external_cms_id','video_url','duration_hhmmss','outro_start_mmss','matched_pattern','intro_start_mmss','match'];
   const rows=[headers];
   const trs=resultsTable.querySelectorAll('tr');
   for(const tr of trs){
     const tds=tr.querySelectorAll('td');
-    const row=[]; for(const td of tds){ const v=td.textContent.replace(/"/g,'""'); row.push('"'+v+'"'); }
+    const row=[]; for(let i=0;i<8;i++){ // nur die ersten 8 Zellen (ohne "Test")
+      const v=(tds[i]?.textContent||'').replace(/"/g,'""');
+      row.push('"'+v+'"');
+    }
     rows.push(row);
   }
   const csv=rows.map(r=>r.join(',')).join('\n');
@@ -428,7 +521,7 @@ btnExportCsv.addEventListener('click', ()=>{
   URL.revokeObjectURL(url);
 });
 
-// ---------- Update-XML exportieren ----------
+// ---------- Update-XML exportieren (an neue Spalten angepasst) ----------
 function toHHMMSSFixed(seconds){
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
@@ -464,14 +557,19 @@ btnExportXml.addEventListener('click', async ()=>{
 
     trs.forEach(tr=>{
       const tds = tr.querySelectorAll('td');
-      if (tds.length < 12) return;
+      if (tds.length < 9) return;
 
       const cmsId       = tds[0].textContent.trim();
       const externalId  = tds[1].textContent.trim() || cmsId; // Fallback
-      const durationStr = tds[4].textContent.trim();          // hh:mm:ss
-      const outroStartS = parseFloat(tds[6].textContent) || NaN;
-      const patName     = tds[7].textContent.trim();
-      const introStartS = parseFloat(tds[9].textContent) || NaN;
+      const url         = tds[2].textContent.trim();
+      const durationStr = tds[3].textContent.trim();          // hh:mm:ss
+      const outroMMSS   = tds[4].textContent.trim();
+      const patName     = tds[5].textContent.trim();
+      const introMMSS   = tds[6].textContent.trim();
+
+      // Sekunden bevorzugt aus dataset (exakter), sonst aus mm:ss parsen
+      const introStartS = Number(tr.dataset.introS) || parseTime(introMMSS);
+      const outroStartS = Number(tr.dataset.outroS) || parseTime(outroMMSS);
 
       const pat = patterns[patName] || {};
       const introDurS = Number.isFinite(pat.intro_duration_s)
@@ -481,11 +579,7 @@ btnExportXml.addEventListener('click', async ()=>{
         ? Math.round(pat.outro_duration_s) : 0;
 
       if (!outroDurS) {
-        const totalS = (()=>{
-          const s = (durationStr || '').trim();
-          const v = parseTime(s);
-          return Number.isFinite(v) ? v : NaN;
-        })();
+        const totalS = parseTime(durationStr);
         if (Number.isFinite(totalS) && Number.isFinite(outroStartS)) {
           outroDurS = Math.max(0, Math.round(totalS - outroStartS));
         }
@@ -559,10 +653,10 @@ ${docs.join('\n')}
 </documents>`;
 
     const blob = new Blob([xml], { type: 'application/xml' });
-    const url = URL.createObjectURL(blob);
+    const urlBlob = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'update.xml'; a.click();
-    URL.revokeObjectURL(url);
+    a.href = urlBlob; a.download = 'update.xml'; a.click();
+    URL.revokeObjectURL(urlBlob);
   }catch(err){
     log('XML-Export fehlgeschlagen: '+err);
   }finally{

@@ -58,6 +58,11 @@ jobs:
           test -f public/vendor/ffmpeg/umd/ffmpeg.js
           test -f public/vendor/meyda/meyda.min.js
 
+      - name: Add favicon
+        run: |
+          mkdir -p public
+          cp favicon.png public/favicon.png
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

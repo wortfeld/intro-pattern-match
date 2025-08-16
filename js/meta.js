@@ -40,3 +40,45 @@ export function uuid(){
     const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   });
 }
+
+export function smartSplit(line) {
+  // Prefer TAB (Excel-friendly). Fall back to comma.
+  if (line.includes('\t')) return line.split('\t').map(s=>s.trim());
+  if (line.includes(','))  return line.split(',').map(s=>s.trim());
+  return [line.trim()];
+}
+
+export function looksLikeUrl(s) {
+  return /^https?:\/\//i.test(s);
+}
+
+/**
+ * Parse a mixed batch:
+ * - Lines with at least 2 TAB/CSV fields -> metadata: cms_id, external_id, url?, duration?
+ * - Bare lines that look like URLs -> treated as URL-only entries
+ * Returns: { metaMap, urls }
+ */
+export function parseBatch(text) {
+  const metaMap = {};
+  const urls = [];
+  (text||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean).forEach(line=>{
+    const parts = smartSplit(line);
+    if (parts.length === 1) {
+      const p = parts[0];
+      if (looksLikeUrl(p)) urls.push(p);
+      return;
+    }
+    // Treat as metadata row
+    const [cms='', ext='', url='', dur=''] = parts;
+    const durS = parseTime(dur);
+    const entry = { cms_id: cms, external_cms_id: ext, url, duration_s: Number.isFinite(durS)? durS : NaN };
+    if (url) {
+      metaMap[url] = entry;
+      metaMap[basenameFromUrl(url)] = entry;
+    }
+    if (cms && !url) metaMap[cms] = entry; // allow cms_id lookup for local files
+    // If a 3rd/4th column is actually a URL without headers, we also push to urls
+    if (looksLikeUrl(url)) urls.push(url);
+  });
+  return { metaMap, urls };
+}

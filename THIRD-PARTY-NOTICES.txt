@@ -1,0 +1,16 @@
+Intro Pattern Matcher – Third-Party Notices
+
+FFmpeg
+  Copyright (c) 2000-2025 FFmpeg developers
+  License: GPL 2+
+  Source: https://ffmpeg.org/
+  This product includes software developed by the FFmpeg project.
+
+@ffmpeg/ffmpeg (JS wrapper)
+  License: MIT
+  Source: https://github.com/ffmpegwasm/ffmpeg.wasm 
+
+Meyda
+  License: MIT
+  Source: https://github.com/meyda/meyda
+

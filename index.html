@@ -140,7 +140,7 @@
 
     <!-- Karte 1: Muster anlegen -->
     <div class="card">
-      <h2>Neue Intro-Muster erstellen</h2>
+      <h2>Neues Intro-Muster erstellen</h2>
 
       <div class="row">
         <label>Name der Serie/Staffel:
@@ -235,6 +235,21 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
           <span id="coreInfo" class="muted"></span>
         </div>
 
+
+        <details id="advanced" class="muted">
+          <summary>Kurze Einführung</summary>
+            <div style="margin-top:8px; font-size:12px; line-height:1.4">
+                <ul>
+                  <li>Im ersten Schritt muss ein neues Intro-Muster festgelegt werden. Dazu wird ein Video benötigt, bei der Start und Ende des Intros sowie die Dauer des Outros am Ende bekannt sind. Wenn der Server es zulässt, kann das Video per URL eingefügt werden; andernfalls ist alternativ ein direkter Videoupload möglich. Das Muster bekommt einen Namen, beispielsweise die Serie und Staffel.</li>
+                  <li>Im zweiten Schritt wird ein bestehendes Intro-Muster abgerufen und auf Videos angewendet. Die Muster werden nur lokal im Browser gespeichert - um ein Muster über längere Zeit zu verwenden, kann es als Datei gespeichert und später erneut geladen werden.</li>
+                  <li>Um die Videoliste einzufügen, muss das Muster streng beachtet werden: Erst die CMS-Video-ID, dann die Externe ID (wird für spätere Updates benötigt), dann die MP4-URL (möglichst kleinste Videovariante nehmen) und schließlich die Dauer.</li>
+                  <li>Mit Liste abarbeiten startet der Prozess: Das Tool versucht, die Stelle zu finden, an der das Intro startet. Standardmä́ßig werden die ersten 180 Sekunden des Videos untersucht; das lässt sich in den erweiterten Einstellungen ändern.</li>
+                  <li>Ist die Liste erstellt, sollten die Intros und Outros auf Plausibilität geprüft werden. In der Spalte Test sind Links zur Intro-und Outro-Position (sofern der Video-Server dies zulässt). Hat das Tool nicht die richtige Stelle gefunden, lassen sich die Timecodes auch noch händisch korrigieren.</li>
+                  <li>Die Timecodes können anschließend als CSV-Tabelle exportiert werden. Für ein bestimmtes CMS lässt sich auch Update-XML direkt ausgeben, das dann im CMS eingelesen werden. (Achtung: Ist das Video im CMS veröffentlicht, wird es beim Import erneut veröffentlicht. Die Zahl der Videodateien sollte das CMS und nachfolgende Systeme also nicht überlasten.)</li>
+                </ul>
+          </div>
+        </details>
+          
         <details id="advanced" class="muted">
           <summary>Erweiterte Einstellungen</summary>
           <div class="row">

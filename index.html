@@ -112,6 +112,11 @@
 
     /* Footer block */
     footer { margin-top: 32px; }
+      
+    button.iconbtn { background: none; border: none; padding: 0 2px; cursor: pointer; }
+    button.iconbtn svg { width: 16px; height: 16px; vertical-align: middle; fill: #0e56ab; }
+    button.iconbtn:hover svg { fill: #1174e4; }
+  
   </style>
 </head>
 <body>
@@ -257,6 +262,28 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
   </div>
 </div>
 
+<!-- Edit-Overlay: Intro/Outro-Zeiten korrigieren -->
+<div id="editOverlay" class="overlay hidden" aria-hidden="true" role="dialog" aria-modal="true">
+  <div class="overlay-content" style="flex-direction:column; align-items:stretch; width:min(520px, 92vw);">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+      <div id="editTitle" style="font-weight:700; color:#0b2f5e;">Zeiten korrigieren</div>
+      <button id="editClose" class="btn small ghost">Schließen</button>
+    </div>
+    <div class="row" style="margin-top:4px;">
+      <label>Intro (mm:ss):
+        <input id="editIntro" type="text" placeholder="z. B. 01:23" size="10">
+      </label>
+      <label>Outro (mm:ss):
+        <input id="editOutro" type="text" placeholder="z. B. 47:10" size="10">
+      </label>
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:6px;">
+      <button id="editSave" class="btn">Übernehmen</button>
+    </div>
+  </div>
+</div>
+    
+    
   <!-- Vendor: UMD globals -->
   <script src="./vendor/ffmpeg/umd/ffmpeg.js"></script>
   <script src="./vendor/meyda/meyda.min.js"></script>

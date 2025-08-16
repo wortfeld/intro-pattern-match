@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf public
-          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd public/vendor/meyda
+          mkdir -p public/vendor/ffmpeg/core/umd public/vendor/ffmpeg/umd public/vendor/meyda public/vendor/meyda public/js
 
           CORE_TGZ="$(npm pack @ffmpeg/core@${CORE_VERSION})"
           tar -xzf "$CORE_TGZ"
@@ -48,6 +48,7 @@ jobs:
           rm -rf package "$MEYDA_TGZ"
 
           cp index.html public/index.html
+          cp js/*.js public/js/
           touch public/.nojekyll
           date -u +"build %Y-%m-%dT%H:%M:%SZ" > public/build.txt
 

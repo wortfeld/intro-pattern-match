@@ -93,8 +93,8 @@
 
     <!-- URL/TSV Batch -->
     <div class="row">
-      <textarea id="batchInput" placeholder="Excel-Zeilen einfügen (TAB-getrennt) oder einfache URLs (eine pro Zeile):
-cms_id [TAB] externe_cms_id [TAB] video_url (optional) [TAB] dauer (optional hh:mm:ss)"></textarea>
+      <textarea id="batchInput" placeholder="Zeilen aus Excel einfügen (oder eine MP4-URL pro Zeile):
+CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
     </div>
     <div class="row">
       <button id="btnAnalyzeBatch" class="primary">Liste abarbeiten</button>
@@ -129,12 +129,12 @@ cms_id [TAB] externe_cms_id [TAB] video_url (optional) [TAB] dauer (optional hh:
       </thead>
       <tbody></tbody>
     </table>
-    <div class="row"><button id="btnExportCsv" class="ghost">CSV exportieren</button></div>
+  <div class="row">
+    <button id="btnExportCsv" class="ghost">CSV exportieren</button>
+    <button id="btnExportXml" class="ghost">Update-XML</button>
+  </div>
   </div>
 
-  <!-- Protokoll -->
-  <h2>Protokoll</h2>
-  <div id="log"></div>
 
   <!-- Fußbereich: Technik & Einstellungen -->
   <footer>
@@ -153,6 +153,11 @@ cms_id [TAB] externe_cms_id [TAB] video_url (optional) [TAB] dauer (optional hh:
           <label>MFCC-Koeff.: <input type="text" id="mfccCount" value="13" size="4"></label>
         </div>
       </details>
+      <details class="muted">
+        <summary>Protokoll (aufklappen)</summary>
+        <div id="log" style="margin-top:8px;"></div>
+     </details>
+
     </div>
   </footer>
 

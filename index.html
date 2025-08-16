@@ -11,6 +11,8 @@
     .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
     .col { display: flex; flex-direction: column; gap: 8px; }
     button { padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; background: #f7f7f7; cursor: pointer; }
+    button.primary { background: #195ef7; color: #fff; border-color: #195ef7; }
+    button.ghost { background: transparent; border-color: #bbb; }
     button:disabled { opacity: .6; cursor: default; }
     input[type="text"], input[type="url"], select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
     #log { white-space: pre-wrap; font-family: Consolas, Menlo, monospace; border: 1px solid #ddd; background: #fafafa; padding: 10px; border-radius: 8px; min-height: 140px; }
@@ -20,66 +22,102 @@
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 13px; }
     textarea { width: 100%; min-height: 90px; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; }
+
+    /* Busy overlay */
+    .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .hidden { display: none !important; }
+    .overlay-content { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #ddd; border-radius: 12px; background: #fff; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+    .spinner { width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    details > summary { cursor: pointer; user-select: none; font-weight: 600; }
+    details .row { margin-top: 8px; }
   </style>
 </head>
 <body>
   <h1>Intro Pattern Matcher</h1>
-  <div class="muted">Create and store an intro pattern from a reference file, detect the intro start in the first N minutes of new files, and compute outro start from duration.</div>
+  <div class="muted">Create and store an intro pattern, detect the intro start in the first N minutes of new files, and compute outro start from duration.</div>
 
-  <div class="card">
-    <div class="row">
-      <button id="btnLoad">Load ffmpeg</button>
-      <span id="status" class="pill">not loaded</span>
-      <span id="coreInfo" class="muted"></span>
-    </div>
-    <div class="row">
-      <label>Head window (s): <input type="text" id="headWindow" value="180" size="6"></label>
-      <label>Frame size: <input type="text" id="frameSize" value="1024" size="6"></label>
-      <label>Hop size: <input type="text" id="hopSize" value="512" size="6"></label>
-      <label>MFCC coeffs: <input type="text" id="mfccCount" value="13" size="4"></label>
+  <!-- Busy overlay -->
+  <div id="overlay" class="overlay hidden" aria-hidden="true">
+    <div class="overlay-content">
+      <div class="spinner" aria-hidden="true"></div>
+      <div id="busyLabel">Working…</div>
     </div>
   </div>
 
   <div class="card">
-    <h2>1) Create & save pattern</h2>
     <div class="row">
-      <input id="refFile" type="file" accept="video/*,audio/*">
+      <span class="muted">Engine</span>
+      <span id="status" class="pill">ffmpeg: idle</span>
+      <span id="coreInfo" class="muted"></span>
+    </div>
+
+    <details id="advanced">
+      <summary>Advanced settings</summary>
+      <div class="row">
+        <label>Head window (s): <input type="text" id="headWindow" value="180" size="6"></label>
+        <label>Frame size: <input type="text" id="frameSize" value="1024" size="6"></label>
+        <label>Hop size: <input type="text" id="hopSize" value="512" size="6"></label>
+        <label>MFCC coeffs: <input type="text" id="mfccCount" value="13" size="4"></label>
+      </div>
+    </details>
+    <div class="muted">Tip: You usually don’t need to touch Advanced. The engine loads automatically when you start.</div>
+  </div>
+
+  <div class="card">
+    <h2>1) Create & save pattern</h2>
+
+    <!-- URL-first (standard) -->
+    <div class="row">
+      <input id="refUrl" type="url" placeholder="https://example.com/path/to/reference.mp4" size="60">
       <input id="patternName" type="text" placeholder="Pattern name (e.g., Series S02 – Intro v1)" size="40">
     </div>
     <div class="row">
       <label>Intro start (mm:ss or seconds): <input id="introStart" type="text" placeholder="e.g. 01:23" size="10"></label>
       <label>Intro end (mm:ss or seconds): <input id="introEnd" type="text" placeholder="e.g. 01:53" size="10"></label>
       <label>Outro duration (mm:ss or seconds): <input id="outroDuration" type="text" placeholder="e.g. 00:30" size="10"></label>
-      <button id="btnMakePattern">Extract & Save Pattern</button>
+      <button id="btnMakePatternFromUrl" class="primary">Fetch URL & Save Pattern</button>
     </div>
-    <div class="muted">The marked segment will be decoded (mono, 16 kHz), MFCC features computed and stored locally (IndexedDB). No server.</div>
+    <div class="muted">The marked segment will be decoded (mono, 16 kHz), MFCC features computed and stored locally. No server.</div>
+
+    <!-- OR: file alternative -->
     <div class="row">
-      <input id="refUrl" type="url" placeholder="https://example.com/path/to/reference.mp4" size="60">
-      <button id="btnMakePatternFromUrl">Fetch URL & Save Pattern</button>
+      <div class="muted">— or —</div>
     </div>
-    <div class="muted">URL-Hinweis: Die Quelle muss CORS zulassen (Access-Control-Allow-Origin). Für große Dateien kann das Laden dauern.</div>
+    <div class="row">
+      <input id="refFile" type="file" accept="video/*,audio/*">
+      <button id="btnMakePattern">Extract & Save Pattern (from file)</button>
+    </div>
+    <div class="muted">Note: For URLs, the source must allow CORS (Access-Control-Allow-Origin). Large files may take time.</div>
   </div>
 
   <div class="card">
     <h2>2) Select pattern & detect in a new file</h2>
+
     <div class="row">
       <select id="patternSelect"></select>
-      <button id="btnDeletePattern">Delete selected pattern</button>
+      <button id="btnDeletePattern" class="ghost">Delete selected pattern</button>
     </div>
 
-   <div class="row">
-  <textarea id="batchInput" placeholder="Paste Excel rows (tab-separated):
-cms_id [TAB] external_cms_id [TAB] video_url (optional) [TAB] duration (optional hh:mm:ss)
-You can also paste plain URLs (one per line). Lines without tabs are treated as URLs."></textarea>
-</div>
+    <!-- URL-first (batch box) -->
+    <div class="row">
+      <textarea id="batchInput" placeholder="Paste Excel rows (tab-separated) or plain URLs:
+cms_id [TAB] external_cms_id [TAB] video_url (optional) [TAB] duration (optional hh:mm:ss)"></textarea>
+    </div>
+    <div class="row">
+      <button id="btnAnalyzeBatch" class="primary">Analyze batch (from box)</button>
+      <button id="btnAbort">Abort</button>
+    </div>
 
-<div class="row">
-  <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
-  <button id="btnAnalyze">Analyze selected file(s)</button>
-  <button id="btnAnalyzeBatch">Analyze batch (from box)</button>
-  <button id="btnAbort">Abort</button>
-</div>
-
+    <!-- OR: files alternative -->
+    <div class="row">
+      <div class="muted">— or —</div>
+    </div>
+    <div class="row">
+      <input id="targetFile" type="file" accept="video/*,audio/*" multiple>
+      <button id="btnAnalyze">Analyze selected file(s)</button>
+    </div>
 
     <table id="resultsTable">
       <thead>
@@ -100,7 +138,7 @@ You can also paste plain URLs (one per line). Lines without tabs are treated as 
       </thead>
       <tbody></tbody>
     </table>
-    <div class="row"><button id="btnExportCsv">Export CSV</button></div>
+    <div class="row"><button id="btnExportCsv" class="ghost">Export CSV</button></div>
   </div>
 
   <h2>Log</h2>

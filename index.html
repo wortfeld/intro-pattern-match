@@ -11,28 +11,32 @@
       --bg:#f7f7f8;
       --line:#ccc;
       --muted:#666;
-      --muted-2:#999;
       --row-alt:#f2f2f2;
-      --danger:#d00;
       --shadow:0 10px 30px rgba(0,0,0,.12);
       --card-bg:#fff;
       --radius:10px;
       --focus:2px solid var(--brand-hover);
-      --container:1100px;
+      --container:1200px; /* breiter */
     }
 
     *{ box-sizing:border-box }
     html,body { height:100% }
     body {
-      margin:0; background:#fff; color:#111; line-height:1.4;
-      font-family: Arial, Helvetica, sans-serif;
+      margin:0; background:#fff; color:#111; line-height:1.45;
+      /* Body-Font: NDRSans > Roboto > System */
+      font-family: "NDRSans","Roboto","Helvetica Neue",Arial,Helvetica,sans-serif;
     }
 
     /* Layout */
-    .wrap { max-width: var(--container); margin: 0 auto; padding: 24px 24px 40px; }
-    header { margin-bottom: 8px; }
-    h1 { margin:0 0 6px 0; font-size: 28px; font-weight: 700; letter-spacing:.2px; color:#0b2f5e; }
-    h2 { margin:18px 0 12px; font-size: 18px; font-weight: 700; color:#0b2f5e; }
+    .wrap { max-width: var(--container); margin: 0 auto; padding: 32px 32px 56px; } /* mehr Innenabstand */
+    header { margin-bottom: 10px; }
+    h1 {
+      margin:0 0 8px 0;
+      font-size: 30px; font-weight: 700; letter-spacing:.2px; color:#0b2f5e;
+      /* Headline-Font: NDRSansCond zuerst */
+      font-family: "NDRSansCond","NDRSans","Roboto","Helvetica Neue",Arial,Helvetica,sans-serif;
+    }
+    h2 { margin:22px 0 14px; font-size: 19px; font-weight: 700; color:#0b2f5e; }
 
     /* Cards */
     .card {
@@ -40,11 +44,12 @@
       border:1px solid #e6e6e6;
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding:16px;
-      margin: 16px 0;
+      padding:20px;               /* etwas mehr */
+      margin: 20px 0;             /* etwas mehr */
     }
 
-    .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
+    .row { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin-bottom:14px; } /* mehr Gap/Abstand */
+    .row-actions{ margin-top:18px; } /* extra Luft vor Export-Buttons */
     .muted { color: var(--muted); font-size: 12px; }
 
     /* Inputs */
@@ -54,17 +59,23 @@
       background:#fff; min-height: 38px;
     }
     input:focus, select:focus, textarea:focus { outline: var(--focus); }
-    textarea { width:100%; min-height:110px; font-family: Consolas, Menlo, monospace; }
+    textarea { width:100%; min-height:120px; font-family: Consolas, Menlo, monospace; }
 
-    /* Buttons */
-    .btn { font: inherit; font-weight:700; padding:.55rem .9rem; border:none; border-radius:8px; cursor:pointer;
-           background-color: var(--brand); color:#fff; transition: background-color .15s, transform .02s; }
+    /* Buttons (etwas kleiner) */
+    .btn {
+      font: inherit; font-weight:700;
+      padding:.42rem .7rem;        /* kompakter */
+      font-size:.95rem;
+      border:none; border-radius:8px; cursor:pointer;
+      background-color: var(--brand); color:#fff;
+      transition: background-color .15s, transform .02s;
+    }
     .btn:hover { background-color: var(--brand-hover); }
     .btn:active { transform: translateY(1px); }
     .btn:disabled { background:#cfd6e1; cursor:not-allowed; }
     .btn.ghost { background:#eef3fb; color:#0b2f5e; border:1px solid #d7e3f7; }
     .btn.ghost:hover { background:#e6eefc; }
-    .btn.small{ padding:.35rem .6rem; font-weight:600; }
+    .btn.small{ padding:.3rem .5rem; font-weight:600; font-size:.9rem; }
 
     /* Pill/Status */
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef3fb; color:#0b2f5e; font-size:12px; margin-left:8px; border:1px solid #d7e3f7; }
@@ -75,8 +86,8 @@
     details .row { margin-top:8px; }
 
     /* Table */
-    table { border-collapse: collapse; width:100%; margin-top: 6px; }
-    th, td { border:1px solid #e6e6e6; padding:8px 10px; text-align:left; font-size:13px; vertical-align: top; }
+    table { border-collapse: collapse; width:100%; margin-top: 8px; margin-bottom: 8px; }
+    th, td { border:1px solid #e6e6e6; padding:10px 12px; text-align:left; font-size:13px; vertical-align: top; }
     thead th { background:#eee; color:#222; }
     tbody tr:nth-child(even){ background: var(--row-alt); }
 
@@ -100,7 +111,7 @@
     button.linklike:disabled { opacity:.6; cursor: default; text-decoration: none; }
 
     /* Footer block */
-    footer { margin-top: 28px; }
+    footer { margin-top: 32px; }
   </style>
 </head>
 <body>
@@ -124,7 +135,6 @@
     <div class="card">
       <h2>Intro-Muster und Outro-Dauer</h2>
 
-      <!-- URL zuerst (Standard) -->
       <div class="row">
         <label>Name der Serie/Staffel:
           <input id="patternName" type="text" placeholder="z. B. Serie S02 – Intro v1" size="40">
@@ -146,7 +156,6 @@
         <button id="btnMakePatternFromUrl" class="btn">Muster erstellen</button>
       </div>
 
-      <!-- Alternative: Datei-Upload -->
       <details class="muted">
         <summary>Alternative: Direkter Videoupload</summary>
         <div class="row">
@@ -165,7 +174,6 @@
         <button id="btnDeletePattern" class="btn ghost">Ausgewähltes Muster löschen</button>
       </div>
 
-      <!-- URL/TSV Batch -->
       <div class="row">
         <textarea id="batchInput" placeholder="Zeilen aus Excel einfügen (oder eine MP4-URL pro Zeile):
 CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
@@ -175,7 +183,6 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
         <button id="btnAbort" class="btn ghost">Abbrechen</button>
       </div>
 
-      <!-- Alternative: mehrere Dateien -->
       <details class="muted">
         <summary>Alternative: Direkter Videoupload</summary>
         <div class="row">
@@ -204,7 +211,7 @@ CMS-ID [Tab] External-ID [Tab] MP4-URL [Tab] Dauer (hh:mm:ss)"></textarea>
         <tbody></tbody>
       </table>
 
-      <div class="row">
+      <div class="row row-actions">
         <button id="btnExportCsv" class="btn ghost">CSV exportieren</button>
         <button id="btnExportXml" class="btn ghost">Update-XML</button>
       </div>

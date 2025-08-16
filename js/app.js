@@ -47,7 +47,7 @@ const btnAbort = document.getElementById('btnAbort');
 
 const resultsTable = document.getElementById('resultsTable').querySelector('tbody');
 const btnExportCsv = document.getElementById('btnExportCsv');
-
+const btnExportXml = document.getElementById('btnExportXml');
 const overlay = document.getElementById('overlay');
 const busyLabel = document.getElementById('busyLabel');
 
@@ -116,6 +116,33 @@ function float32FromB64(b64){
   return new Float32Array(ab);
 }
 
+function toHHMMSSFixed(seconds){
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return [h,m,sec].map(n => String(n).padStart(2,'0')).join(':');
+}
+function xmlEscape(str){
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
+}
+async function loadPatternsByName(){
+  const map = {};
+  const keys = await KV.keys();
+  for (const k of keys){
+    const v = await KV.get(k);
+    if (v && v.name){
+      map[v.name] = {
+        intro_duration_s: v?.reference_timing?.intro_duration_s,
+        outro_duration_s: v?.reference_timing?.outro_duration_s
+      };
+    }
+  }
+  return map;
+}
+    
+    
 async function ensureCore(){
   statusEl.textContent = 'ffmpeg: lädt …';
   try {
@@ -399,5 +426,129 @@ btnExportCsv.addEventListener('click', ()=>{
   URL.revokeObjectURL(url);
 });
 
+btnExportXml.addEventListener('click', async ()=>{
+  setBusy(true, 'XML wird erstellt …');
+  try{
+    const patterns = await loadPatternsByName();
+
+    // Sammle Dokumente aus allen Tabellenzeilen
+    const docs = [];
+    const trs = resultsTable.querySelectorAll('tr');
+
+    trs.forEach(tr=>{
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 12) return;
+
+      const cmsId       = tds[0].textContent.trim();
+      const externalId  = tds[1].textContent.trim() || cmsId; // Fallback
+      const durationStr = tds[4].textContent.trim();          // hh:mm:ss
+      const outroStartS = parseFloat(tds[6].textContent) || NaN;
+      const patName     = tds[7].textContent.trim();
+      const introStartS = parseFloat(tds[9].textContent) || NaN;
+
+      // Dauer aus Pattern (bevorzugt), sonst heuristisch
+      const pat = patterns[patName] || {};
+      const introDurS = Number.isFinite(pat.intro_duration_s)
+        ? Math.round(pat.intro_duration_s) : 0;
+
+      let outroDurS = Number.isFinite(pat.outro_duration_s)
+        ? Math.round(pat.outro_duration_s) : 0;
+
+      if (!outroDurS) {
+        // Fallback: aus Gesamtdauer - Outro-Start berechnen
+        const totalS = (()=>{
+          // parseTime kann hh:mm:ss -> Sekunden
+          const s = (durationStr || '').trim();
+          // parseTime stammt aus meta.js und ist global importiert
+          const v = parseTime(s);
+          return Number.isFinite(v) ? v : NaN;
+        })();
+        if (Number.isFinite(totalS) && Number.isFinite(outroStartS)) {
+          outroDurS = Math.max(0, Math.round(totalS - outroStartS));
+        }
+      }
+
+      const introTime = Number.isFinite(introStartS) ? toHHMMSSFixed(introStartS) : '00:00:00';
+      const outroTime = Number.isFinite(outroStartS) ? toHHMMSSFixed(outroStartS) : '00:00:00';
+
+      // Baue ein <document> Fragment
+      const doc =
+`  <document nodeType="unified-nt:video" externalID="${xmlEscape(externalId)}">
+    <properties />
+    <childNodes>
+      <childNode nodeType="unified-nt:jumpLabelRow" name="unified:jumpLabelRow">
+        <properties>
+          <property name="unified:jumpLabelDuration">
+            <value>${introDurS}</value>
+          </property>
+          <property name="unified:jumpLabelTime">
+            <value>${introTime}</value>
+          </property>
+          <property name="unified:jumpLabelType">
+            <value>INTRO</value>
+          </property>
+        </properties>
+        <childNodes />
+        <resourceList />
+      </childNode>
+      <childNode nodeType="unified-nt:jumpLabelRow" name="unified:jumpLabelRow">
+        <properties>
+          <property name="unified:jumpLabelDuration">
+            <value>${outroDurS}</value>
+          </property>
+          <property name="unified:jumpLabelTime">
+            <value>${outroTime}</value>
+          </property>
+          <property name="unified:jumpLabelType">
+            <value>OUTRO</value>
+          </property>
+        </properties>
+        <childNodes />
+        <resourceList />
+      </childNode>
+    </childNodes>
+    <resourceList />
+    <fields>
+      <site />
+      <structureNode />
+      <idstem />
+      <forceLock timeout="10">true</forceLock>
+      <forceCreate>false</forceCreate>
+      <channels>
+        <enabledChannels />
+        <disabledChannels />
+      </channels>
+    </fields>
+    <instructions>
+      <lifecycleActivities>
+        <lifecycleActivity type="keepState" />
+      </lifecycleActivities>
+      <proposals />
+      <stickyNotes />
+    </instructions>
+  </document>`;
+      docs.push(doc);
+    });
+
+    const xml =
+`<?xml version="1.0" encoding="UTF-8"?>
+<documents xmlns="http://www.sophoracms.com/import/5.0">
+${docs.join('\n')}
+</documents>`;
+
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'update.xml'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(err){
+    log('XML-Export fehlgeschlagen: '+err);
+  }finally{
+    setBusy(false);
+  }
+});
+    
+    
+    
 // ---------- init ----------
 refreshPatternList();

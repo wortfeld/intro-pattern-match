@@ -187,6 +187,39 @@ function refreshPatternList(){
     });
 }
 
+// ---- Export-Name Helper ----
+function berlinStamp(){
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const get = (k)=> parts.find(p=>p.type===k)?.value || '';
+  return { dateStr: `${get('year')}${get('month')}${get('day')}`, timeStr: `${get('hour')}${get('minute')}` };
+}
+function slugifyPatternName(s){
+  return String(s||'pattern')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // Diakritika weg
+    .toLowerCase().replace(/&/g,'-and-')
+    .replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+// Versucht zuerst das ausgewählte Muster (Select), sonst 1. Tabellenzeile (Muster-Spalte)
+function getPatternSlugForFilename(){
+  let name = '';
+  if (patternSelect && patternSelect.selectedIndex >= 0){
+    const txt = patternSelect.options[patternSelect.selectedIndex]?.textContent || '';
+    // "Name (abcd1234)" -> nur Name
+    name = txt.replace(/\s*\([^)]+\)\s*$/,'').trim();
+  }
+  if (!name) {
+    const firstRow = resultsTable.querySelector('tr');
+    const patCell = firstRow?.querySelector('td:nth-child(6)'); // "Erkanntes Muster"
+    if (patCell) name = patCell.textContent.trim();
+  }
+  return slugifyPatternName(name);
+}
+    
+    
 // ---- Player helpers ----
 function openPlayer(url, seconds, label='Vorschau'){
   if (!url) return;
@@ -579,10 +612,15 @@ btnExportCsv.addEventListener('click', ()=>{
     rows.push(row);
   }
   const csv=rows.map(r=>r.join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='intro_outro_results.csv'; a.click();
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const { dateStr, timeStr } = berlinStamp();
+  const slug = getPatternSlugForFilename();
+  const filename = `update_${dateStr}_${timeStr}_${slug}.csv`;
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+
 });
 
 // ---------- Update-XML exportieren (nutzt korrigierte Zeiten via dataset) ----------
@@ -717,9 +755,13 @@ ${docs.join('\n')}
 
     const blob = new Blob([xml], { type: 'application/xml' });
     const urlBlob = URL.createObjectURL(blob);
+    const { dateStr, timeStr } = berlinStamp();
+    const slug = getPatternSlugForFilename();
+    const filename = `update_${dateStr}_${timeStr}_${slug}.xml`;
     const a = document.createElement('a');
-    a.href = urlBlob; a.download = 'update.xml'; a.click();
+    a.href = urlBlob; a.download = filename; a.click();
     URL.revokeObjectURL(urlBlob);
+
   }catch(err){
     log('XML-Export fehlgeschlagen: '+err);
   }finally{
